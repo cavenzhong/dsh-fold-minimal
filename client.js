@@ -43,12 +43,14 @@ window.__ModuleLoader__.load({
       'rail.label': '折叠态工具栏',
       'toggle.open': '打开侧边栏',
       'session.new.label': '新建会话',
+      'session.back.label': '返回会话',
     };
 
     var en = {
       'rail.label': 'Collapsed toolbar',
       'toggle.open': 'Open sidebar',
       'session.new.label': 'New session',
+      'session.back.label': 'Back to session',
     };
 
     /* ───────────────────────────── 样式 ───────────────────────────── */
@@ -202,7 +204,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** 新建会话图标（同上）。 */
+    /** 新建会话图标（与 chrome 原按钮同一套路径）。 */
     function NewChatIcon(props) {
       return h(
         'svg',
@@ -222,6 +224,25 @@ window.__ModuleLoader__.load({
         }),
         h('path', { d: 'M8 5V11', stroke: 'currentColor' }),
         h('path', { d: 'M5 8H11', stroke: 'currentColor' }),
+      );
+    }
+
+    /** 返回会话图标（左箭头，线条与工具栏原按钮一致）。 */
+    function BackIcon(props) {
+      return h(
+        'svg',
+        {
+          width: props.size,
+          height: props.size,
+          viewBox: '0 0 16 16',
+          fill: 'none',
+          xmlns: 'http://www.w3.org/2000/svg',
+          'aria-hidden': 'true',
+          className: 'DFM_svg',
+          strokeWidth: 1,
+        },
+        h('path', { d: 'M12.5 8H3.5', stroke: 'currentColor' }),
+        h('path', { d: 'M7.25 4.25 3.5 8l3.75 3.75', stroke: 'currentColor' }),
       );
     }
 
@@ -403,7 +424,17 @@ window.__ModuleLoader__.load({
     /* ──────────────────────────── 工具栏 ──────────────────────────── */
 
     /**
-     * 折叠态窗口左上角工具栏：展开 │ 全局面板（与左侧菜单同序）│ 新建会话。
+     * 主区域是否正被某个全局面板占用（而不是在会话里）。
+     * @param info - usePanelInfo 的布局快照。
+     * @returns 面板活跃时为 true；会话中为 false。
+     */
+    function isPanelActive(info) {
+      return info.activePanelId !== null;
+    }
+
+    /**
+     * 折叠态窗口左上角工具栏：展开 │ 全局面板（与左侧菜单同序）│ 新建会话，
+     * 面板活跃时在新建会话后追加「返回会话」。
      * @param props - 槽位标准 props + 本插件 inject 的 props。
      */
     function LeadingRail(props) {
@@ -412,6 +443,7 @@ window.__ModuleLoader__.load({
       var panels = props.usePanels(function (snapshot) {
         return snapshot;
       });
+      var panelActive = usePanelInfo(isPanelActive);
       var toggleShortcut = props.useShortcuts(shortcutFinder('sidebar.left.toggle'));
       var newShortcut = props.useShortcuts(shortcutFinder('session.new'));
 
@@ -464,6 +496,22 @@ window.__ModuleLoader__.load({
           h(NewChatIcon, { size: ICON_SIZE }),
         ),
       );
+
+      // 「返回会话」只属于面板上下文：已经回到会话时没有可返回的目标，隐藏。
+      if (panelActive) {
+        children.push(
+          h(
+            RailButton,
+            {
+              key: 'rail:back-session',
+              label: t('session.back.label'),
+              testId: 'back-session',
+              onClick: props.backToSession,
+            },
+            h(BackIcon, { size: ICON_SIZE }),
+          ),
+        );
+      }
 
       return h(
         'div',
@@ -522,6 +570,11 @@ window.__ModuleLoader__.load({
                 selectPanel: function (id) {
                   ctx.layout.selectPanel(id);
                 },
+                backToSession: function () {
+                  // null 是布局层原生的「回到 Conversation」；主会话由 uiWorkspace
+                  // 以 mainView 引用保留着，所以不需要重新加载或重新选择会话。
+                  ctx.layout.selectPanel(null);
+                },
                 trackEntryClick: function (attributes) {
                   // 埋点是可选服务；它失败也不能影响「打开面板 / 新建会话」本身。
                   try {
@@ -557,6 +610,7 @@ window.__ModuleLoader__.load({
         labelOf: labelOf,
         buildPanels: buildPanels,
         samePanels: samePanels,
+        isPanelActive: isPanelActive,
       },
     };
   },

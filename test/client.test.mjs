@@ -8,8 +8,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 const fakeReact = {
-  createElement: () => null,
+  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
   Component: class Component {},
+  useRef: (initial) => ({ current: initial }),
+  useLayoutEffect: () => {},
 };
 
 let captured = null;
@@ -36,6 +38,7 @@ const {
   labelOf,
   buildPanels,
   samePanels,
+  isPanelActive,
 } = exports.__test;
 
 function makeCtx(entries) {
@@ -52,10 +55,93 @@ test('bundle id 与槽位常量', () => {
 
 test('中英文语言表键集合一致且都有文案', () => {
   assert.deepEqual(Object.keys(dictionaries.zh).sort(), Object.keys(dictionaries.en).sort());
-  for (const key of ['rail.label', 'toggle.open', 'session.new.label']) {
+  for (const key of ['rail.label', 'toggle.open', 'session.new.label', 'session.back.label']) {
     assert.ok(dictionaries.zh[key]);
     assert.ok(dictionaries.en[key]);
   }
+});
+
+test('isPanelActive 只在主区域被全局面板占用时为真', () => {
+  assert.equal(isPanelActive({ activePanelId: 'plugins' }), true);
+  assert.equal(isPanelActive({ activePanelId: 'sticky-notes' }), true);
+  assert.equal(isPanelActive({ activePanelId: null }), false);
+});
+
+/**
+ * 用最小客户端上下文跑一遍真实的 apply()，再渲染它注册到 shell.leading 的组件。
+ * 覆盖 apply → slot 注册 → inject → LeadingRail 这条运行时链路（不需要 DOM）。
+ */
+function renderRail(panelInfo) {
+  const selections = [];
+  const registered = [];
+  const ctx = {
+    effect: (fn) => fn(),
+    locale: {
+      register: () => () => {},
+      subscribe: () => () => {},
+    },
+    slots: {
+      entriesOfSlot: () => [],
+      subscribe: () => () => {},
+      inject: (_slot, callback) => callback(),
+      register: (options, component) => {
+        registered.push({ options, component });
+        return () => {};
+      },
+    },
+    layout: {
+      toggleSidebar: () => {},
+      selectPanel: (id) => selections.push(id),
+    },
+    uiWorkspace: { startSession: () => {} },
+    shortcuts: { catalog: { getSnapshot: () => [], subscribe: () => () => {} } },
+    get: () => undefined,
+  };
+  exports.apply(ctx);
+  const entry = registered.find((candidate) => candidate.options.name === SLOT);
+  const injected = entry.options.inject();
+  const tree = entry.component({
+    ...injected,
+    t: (key) => key,
+    usePanelInfo: (selector) => selector(panelInfo),
+    usePanels: (selector) => selector([]),
+    useShortcuts: () => undefined,
+  });
+  return { tree, selections };
+}
+
+function flatten(node, out = []) {
+  if (Array.isArray(node)) {
+    for (const child of node) flatten(child, out);
+  } else if (node && typeof node === 'object') {
+    out.push(node);
+    flatten(node.children, out);
+  }
+  return out;
+}
+
+function railButton(elements, testId) {
+  return elements.find((element) => element.props.testId === testId);
+}
+
+test('面板活跃时在新建会话后渲染返回会话，点击走布局层 selectPanel(null)', () => {
+  const active = renderRail({ activePanelId: 'plugins' });
+  const elements = flatten(active.tree);
+  const back = railButton(elements, 'back-session');
+  assert.ok(back, '面板活跃时应渲染返回按钮');
+  assert.equal(back.props.label, 'session.back.label');
+  assert.equal(railButton(elements, 'new-session').props.label, 'session.new.label');
+  assert.deepEqual(
+    elements
+      .filter((element) => element.props.testId === 'new-session' || element.props.testId === 'back-session')
+      .map((element) => element.props.testId),
+    ['new-session', 'back-session'],
+  );
+  back.props.onClick();
+  assert.deepEqual(active.selections, [null]);
+
+  const inSession = renderRail({ activePanelId: null });
+  assert.equal(railButton(flatten(inSession.tree), 'back-session'), undefined, '会话中不应渲染返回按钮');
 });
 
 test('labelOf 支持 thunk、字符串与缺失回退 id', () => {
