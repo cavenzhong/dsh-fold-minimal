@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="146" height="28" viewBox="0 0 146 28" fill="none">
+  <rect x="0.5" y="0.5" width="145" height="27" rx="13.5" fill="#0F1524" stroke="#2A3552"/>
+  <path d="M15 19.5V11.2c0-.4.3-.7.7-.7h4.1c.4 0 .7.3.7.7v8.3M13 19.5h10M18.4 10.5V8.8c0-.4.3-.7.7-.7h.5c.4 0 .7.3.7.7v1.7" stroke="#8AA4FF" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="84" y="18.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12.5" font-weight="600" fill="#AAB6D6">macOS Desktop</text>
+</svg>
