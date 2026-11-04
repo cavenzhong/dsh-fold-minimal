@@ -40,5 +40,23 @@
       ]
     }
   },
+  "author": "cavenzhong",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cavenzhong/dsh-fold-minimal.git"
+  },
+  "homepage": "https://github.com/cavenzhong/dsh-fold-minimal#readme",
+  "bugs": {
+    "url": "https://github.com/cavenzhong/dsh-fold-minimal/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "macos",
+    "sidebar",
+    "plugin",
+    "productivity"
+  ],
   "license": "MIT"
 }

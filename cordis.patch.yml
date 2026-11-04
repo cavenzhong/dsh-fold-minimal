@@ -1,6 +1,7 @@
 # dsh-fold-minimal —— bundle 补丁层
 #
-# 安装：plugin_manager install_bundle target=link:/Users/cavenzhong/Documents/个人项目/my-dsh-plugin/dsh-fold-minimal
+# 安装：在 DSH → 插件 → 添加插件里粘贴本仓库地址，或 Release 里的 .tgz 地址；
+# 开发时用 plugin_manager install_bundle target=link:<本目录绝对路径>。
 # 本行只负责把插件挂进 Loader；真正的 UI 由 client.js 注册到 shell.leading 插槽。
 - insert:
     - id: fold-minimal

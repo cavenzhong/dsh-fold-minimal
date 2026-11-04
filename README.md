@@ -79,19 +79,33 @@ v0.2 在全局面板里加了一个小按钮：**新建会话**右侧出现 **�
 
 **需要**：macOS 桌面版 DSH（左侧栏支持折叠）。
 
-1. 克隆仓库：
+### 方式一：在 DSH 里直接安装（推荐）
+
+1. 打开 **DSH → 插件 → 添加插件**。
+2. 粘贴下面任意一个地址：
+
+   - 仓库地址：`https://github.com/cavenzhong/dsh-fold-minimal`
+   - Release 包：`https://github.com/cavenzhong/dsh-fold-minimal/releases/download/v0.2.0/dsh-fold-minimal-0.2.0.tgz`
+
+3. 安装完成后点 **立即启用**，折叠左侧栏即可看到效果。
+
+### 方式二：让 agent 安装
+
+```text
+plugin_manager install_bundle --target https://github.com/cavenzhong/dsh-fold-minimal/releases/download/v0.2.0/dsh-fold-minimal-0.2.0.tgz
+```
+
+### 方式三：本地开发
 
 ```bash
 git clone https://github.com/cavenzhong/dsh-fold-minimal.git
 ```
 
-2. 在 DSH 里用 `plugin_manager` 安装（把路径换成你的克隆位置）：
+然后在 DSH 里让 agent 执行：
 
-```bash
+```text
 plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
 ```
-
-3. 折叠左侧栏，效果立刻出现。
 
 > 开发时改完 `client.js`，在插件页把本插件**停用再启用**一次即可加载新版本。
 
@@ -115,6 +129,7 @@ plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
 ### v0.2.0 · 2026-11-05
 
 - 新增「返回会话」小按钮：在全局面板中出现，点击回到上一次工作的会话；已在会话中时隐藏。
+- 提供 GitHub Release 的 `.tgz` 安装包，可直接在 DSH「添加插件」里粘贴安装。
 
 ### v0.1.0 · 2026-11-04
 

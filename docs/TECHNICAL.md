@@ -67,6 +67,63 @@ plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
 | `locale/zh.json`、`locale/en.json` | Plugins 页展示用标题/描述。 |
 | `icon.svg` | 插件图标。 |
 
+## 发布与安装
+
+DSH 插件的发布单位是一个 **bundle 包**，不要求上架 npm，也不要求经过中心审核。能被
+`plugin_manager` 安装即可：
+
+- **bundle 清单**：`package.json` 的 `dsh.bundle.patch` 指向补丁 YAML；补丁用
+  `insert` 插入 Loader 行（`id`、`name`、可选 `config`）。
+- **浏览器半（可选）**：`dsh.client` 声明 `platform: web`、`immediately`、`inject`，
+  `exports["./client"]` 指向构建好的 `client.js`；bundle 里用
+  `window.__ModuleLoader__.load` 注册 lazy factory，`id` 等于包名。
+- **展示资源**：`locale/<lang>.json` 提供 `meta.title` / `meta.description`；
+  `exports["./icon"]` 指向图标。图标必须是包内有效的 SVG/PNG/JPEG/WebP，≤ 256 KiB，
+  不允许绝对路径、外链或越界符号链接。
+- **files**：补丁、locale、图标、所有运行时文件和资源都要在 `files` 里；本地链接安装
+  不走 `files` 过滤，打包/发布时才会。发布前用 `npm pack --dry-run` 检查实际文件列表。
+- **客户端约束**：不要在 factory 外做副作用；样式、监听、定时器、槽位注册都放在
+  `apply` 里并通过 `ctx.effect` 返回清理；文案走 locale；样式只用 `--dsw-alias-*`
+  等主题 token；不要 import 任何 `@deepseek-ai/dsh-client-*` 包。
+- **安装入口**：`plugin_manager install_bundle` 接受绝对目录、npm 包名/版本、Git 地址
+  （`github:user/repo#ref` 或 `https://github.com/user/repo`）和 `.tgz`/`.tar.gz` URL。
+  DSH 的 **插件 → 添加插件** 对话框接受同一组 spec，是普通用户最方便的安装方式。
+- **发现页 / 官方市场**：DSH 的 Discover 读独立的 market index（JSON），这是另一条
+  收录流程；直接安装不依赖它。
+
+本仓库对照：
+
+| 项 | 状态 |
+|---|---|
+| `dsh.bundle.patch` + `cordis.patch.yml` | ✅ |
+| `dsh.client` + `exports["./client"]` + lazy factory | ✅ |
+| `meta.title` / `meta.description`（中英） | ✅ |
+| `exports["./icon"]` + 原创 SVG 图标（< 256 KiB） | ✅ |
+| `files` 覆盖补丁、locale、图标、运行时资源 | ✅ |
+| 无 DSH Client 包 import、无额外构建依赖 | ✅ |
+| 版本 / MIT License / 仓库元信息 | ✅ |
+
+### 给别人安装
+
+最方便的方式是把下面任意一个地址粘到 **DSH → 插件 → 添加插件**：
+
+```
+https://github.com/cavenzhong/dsh-fold-minimal
+https://github.com/cavenzhong/dsh-fold-minimal/releases/download/v0.2.0/dsh-fold-minimal-0.2.0.tgz
+```
+
+也可以让 agent 用：
+
+```text
+plugin_manager install_bundle --target <上面的地址>
+```
+
+本地开发仍用：
+
+```text
+plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
+```
+
 ## 测试
 
 ```bash
@@ -81,5 +138,5 @@ npm test
 ## 更新记录
 
 - **0.2.0**：新增「返回会话」按钮——在全局面板中时出现在「新建会话」后，一键回到
-  最后一次工作的会话；已在会话中时隐藏。
+  最后一次工作的会话；已在会话中时隐藏。提供 GitHub Release `.tgz` 安装包。
 - **0.1.0**：折叠态工具栏按左侧菜单顺序映射全局面板图标。
