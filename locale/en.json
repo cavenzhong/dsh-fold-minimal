@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Fold Minimal",
+    "description": "When the sidebar is collapsed, keeps a toolbar at the window's top-left — reopen / global panel icons in the same order as the sidebar menu / new session — mapping every left-column panel into the collapsed state."
+  }
+}
