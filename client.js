@@ -9,7 +9,9 @@
  *  - ui-sidebar 在该座位注册了官方按钮；本插件以 priority -1 覆盖同一单槽，
  *    同时自己渲染展开/新建会话，保证两个基础入口不丢，停用即恢复官方按钮。
  *  - 面板图标直接复用 `sidebar.panellist` 各插件注册的图标组件
- *    （`{ size, active }`），顺序沿用其 order；「更多」菜单不渲染。
+ *    （`{ size, active }`），顺序沿用其 order。
+ *  - 面板区固定 4 格：多于 4 个时第 4 格变成「更多」，其余面板收进悬停菜单。
+ *  - 侧栏拖到最小宽度后继续往左拖，松手即收起；判定不写死最小宽度。
  *  - 只 require 平台基座里的 react；不 import 任何 DSH Client 包。
  *  - 折叠态按工具栏实测宽度改写 `--dsh-frame-leading-clearance`，让会话标题
  *    让位；展开/卸载时移除。
@@ -38,12 +40,54 @@ window.__ModuleLoader__.load({
      * titleRow 的 clearance - 20），所以取 8 即宿主默认的「离工具栏右缘 8px」。
      */
     var CLEARANCE_TRAILING_GAP = 8;
+    /**
+     * 面板区固定格数。超出时最后一格让给「更多」，其余面板收进悬停菜单。
+     * 规则写死、不做配置：这个插件只映射入口，不承担设置面板的职责。
+     */
+    var PANEL_SLOTS = 4;
+    /**
+     * 拖拽过冲阈值（px）：松手时的渲染列宽比指针期望列宽还大这么多，才算
+     * 「已经拖到最小、还想继续往左」。取 80 让「拖到最小」和「触发折叠」之
+     * 间留出明显的距离，避免贴边时误触；不写死宿主的最小宽度，宿主改范围也不失效。
+     */
+    var DRAG_COLLAPSE_OVERSHOOT = 80;
+    /** 悬停意图：进入时的展开延迟与离开时的收回延迟（ms）。 */
+    var MENU_OPEN_DELAY = 80;
+    var MENU_CLOSE_DELAY = 120;
+    /**
+     * 拖拽中「松手会折叠」的指针：向左箭头 + 左侧竖线，线条粗细与缩放箭头一致。
+     * 深浅主题各一支：浅色主题黑字形 + 白描边，深色主题白字形 + 黑描边。
+     * 挂到 `<html>` 上用 !important 盖住宿主手柄的 col-resize。
+     */
+    var ARMED_ATTR = 'data-dfm-collapse-armed';
+
+    /**
+     * 生成「向左收起」指针的 CSS cursor 值。
+     * @param ink - 字形颜色。
+     * @param outline - 描边颜色（保证在相反底色上也看得见）。
+     * @returns `url(...) hotspot, fallback`。
+     */
+    function collapseCursor(ink, outline) {
+      var glyph = "M6 8v12M21 14H11M16 9l-6 5 6 5";
+      var svg =
+        "<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'>" +
+        "<g fill='none' stroke='" + outline + "' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'>" +
+        "<path d='" + glyph + "'/></g>" +
+        "<g fill='none' stroke='" + ink + "' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'>" +
+        "<path d='" + glyph + "'/></g>" +
+        '</svg>';
+      return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '") 14 14, w-resize';
+    }
+
+    var ARMED_CURSOR_LIGHT = collapseCursor('#111111', '#ffffff');
+    var ARMED_CURSOR_DARK = collapseCursor('#ffffff', '#111111');
 
     var zh = {
       'rail.label': '折叠态工具栏',
       'toggle.open': '打开侧边栏',
       'session.new.label': '新建会话',
       'session.back.label': '返回会话',
+      'panels.more': '更多面板',
     };
 
     var en = {
@@ -51,6 +95,7 @@ window.__ModuleLoader__.load({
       'toggle.open': 'Open sidebar',
       'session.new.label': 'New session',
       'session.back.label': 'Back to session',
+      'panels.more': 'More panels',
     };
 
     /* ───────────────────────────── 样式 ───────────────────────────── */
@@ -77,6 +122,24 @@ window.__ModuleLoader__.load({
       '.DFM_button:hover .DFM_tip,.DFM_button:focus-visible .DFM_tip{visibility:visible;opacity:1;',
       'transition:opacity .1s ease .38s,visibility 0s linear .38s}',
       '.DFM_kbd{font:inherit;opacity:.7}',
+      // 「更多」的悬停菜单：贴着按钮下缘展开，只画一层浮层，不引入新容器。
+      '.DFM_more{position:relative;flex:none}',
+      '.DFM_menu{position:absolute;top:calc(100% + 6px);left:0;z-index:60;display:flex;flex-direction:column;',
+      'gap:1px;min-width:168px;max-width:260px;padding:4px;border-radius:var(--dsw-radius-md);',
+      // --dsw-specific-menu：浅色是近乎白的 #f8f9fa，深色是 #303136，跟随主题。
+      'background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay));',
+      'box-shadow:var(--dsw-elevation-prominent,0 6px 16px rgba(0,0,0,.18))}',
+      '.DFM_menuItem{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;',
+      'border:none;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);',
+      'font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer}',
+      '.DFM_menuItem:hover,.DFM_menuItem.DFM_active{background:var(--dsw-alias-interactive-bg-hover)}',
+      '.DFM_menuItem:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid ',
+      'var(--dsw-focus-ring-color,var(--dsw-alias-brand-primary));outline-offset:-2px}',
+      '.DFM_menuLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      // 拖拽进入「松手即折叠」的距离后，指针换成向左收起的形状（深浅主题各一支）。
+      'html[' + ARMED_ATTR + '],html[' + ARMED_ATTR + '] *{cursor:' + ARMED_CURSOR_LIGHT + ' !important}',
+      'html[' + ARMED_ATTR + '] body[data-ds-dark-theme],html[' + ARMED_ATTR + '] body[data-ds-dark-theme] *{',
+      'cursor:' + ARMED_CURSOR_DARK + ' !important}',
     ].join('');
 
     /** 注入本插件样式；返回清理函数。 */
@@ -146,6 +209,35 @@ window.__ModuleLoader__.load({
         if (a.id !== b.id || a.order !== b.order || a.label !== b.label || a.Icon !== b.Icon) return false;
       }
       return true;
+    }
+
+    /**
+     * 把按 order 排好的面板切成「直接平铺」与「收进更多菜单」两段。
+     *
+     * 规则固定：不超过 `PANEL_SLOTS` 个时全部平铺；超出时保留前 `PANEL_SLOTS - 1`
+     * 个，其余（含被「更多」顶掉的那一格）进菜单，否则被顶掉的面板会无处可点。
+     * @param panels - `buildPanels` 的快照（已按 order 升序）。
+     * @returns `{ visible, overflow }`；`overflow` 为空表示不需要「更多」按钮。
+     */
+    function splitPanels(panels) {
+      if (panels.length <= PANEL_SLOTS) return { visible: panels, overflow: [] };
+      return {
+        visible: panels.slice(0, PANEL_SLOTS - 1),
+        overflow: panels.slice(PANEL_SLOTS - 1),
+      };
+    }
+
+    /**
+     * 拖拽过冲量：松手时的渲染列宽减去「指针期望的列宽」。
+     * 差值越大，说明指针已经越过宿主的最小宽度越多；宿主的最小宽度不需要写死。
+     * @param width - 松手那一帧渲染出的侧栏列宽。
+     * @param startWidth - 拖拽起点列宽。
+     * @param startX - 按下时的指针 x。
+     * @param endX - 松手时的指针 x。
+     * @returns 过冲像素；往右拖为负。
+     */
+    function dragOvershoot(width, startWidth, startX, endX) {
+      return width - (startWidth + (endX - startX));
     }
 
     /**
@@ -246,6 +338,24 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** 「更多面板」图标：向下箭头，提示第 4 格这里还收着面板。 */
+    function MorePanelsIcon(props) {
+      return h(
+        'svg',
+        {
+          width: props.size,
+          height: props.size,
+          viewBox: '0 0 16 16',
+          fill: 'none',
+          xmlns: 'http://www.w3.org/2000/svg',
+          'aria-hidden': 'true',
+          className: 'DFM_svg',
+          strokeWidth: 1,
+        },
+        h('path', { d: 'M4.25 6.25 8 10 11.75 6.25', stroke: 'currentColor' }),
+      );
+    }
+
     /** 插件图标不可用/崩溃时的兜底图标（原创：圆角面板 + 中心点）。 */
     function FallbackPanelIcon(props) {
       return h(
@@ -306,7 +416,8 @@ window.__ModuleLoader__.load({
 
     /**
      * 工具栏图标按钮：28×28、hover 底色、焦点环、aria-label、hover/聚焦显示 tooltip。
-     * @param props - label / shortcut / active / onClick / testId / panelId / children。
+     * @param props - label / shortcut / active / onClick / testId / panelId /
+     *   hideTip / hasPopup / expanded / children。
      */
     function RailButton(props) {
       var shortcut = props.shortcut;
@@ -319,23 +430,52 @@ window.__ModuleLoader__.load({
           'aria-label': props.label,
           'aria-current': props.active ? 'page' : undefined,
           'aria-keyshortcuts': shortcut && shortcut.aria ? shortcut.aria : undefined,
+          'aria-haspopup': props.hasPopup,
+          'aria-expanded': props.expanded === undefined ? undefined : props.expanded,
           'data-fold-minimal': props.testId,
           'data-panel-id': props.panelId,
           onClick: props.onClick,
         },
         props.children,
-        h(
-          'span',
-          { className: 'DFM_tip', 'aria-hidden': 'true' },
-          props.label,
-          keys && keys.length > 0 ? h('kbd', { className: 'DFM_kbd' }, keys.join('')) : null,
-        ),
+        props.hideTip
+          ? null
+          : h(
+              'span',
+              { className: 'DFM_tip', 'aria-hidden': 'true' },
+              props.label,
+              keys && keys.length > 0 ? h('kbd', { className: 'DFM_kbd' }, keys.join('')) : null,
+            ),
+      );
+    }
+
+    /** 点开某个全局面板：官方面板补一条埋点，然后切到对应主面板。 */
+    function openPanel(panel, selectPanel, trackEntryClick) {
+      var menuName = OFFICIAL_PANEL_ANALYTICS[panel.id];
+      if (typeof menuName === 'string') {
+        trackEntryClick({ menu_name: menuName, position: 'titlebar' });
+      }
+      selectPanel(panel.id);
+    }
+
+    /**
+     * 直接渲染该插件自己注册的图标组件（`{ size, active }`）；坏图标退化为兜底图标。
+     * 工具栏图标与「更多」菜单共用，保证两个入口看起来是同一个图标。
+     * @param props - panel / active。
+     */
+    function PanelGlyph(props) {
+      var Icon = props.panel.Icon;
+      if (typeof Icon !== 'function' && (typeof Icon !== 'object' || Icon === null)) {
+        return h(FallbackPanelIcon, { size: ICON_SIZE });
+      }
+      return h(
+        IconBoundary,
+        { icon: Icon, fallback: h(FallbackPanelIcon, { size: ICON_SIZE }) },
+        h(Icon, { size: ICON_SIZE, active: props.active }),
       );
     }
 
     /**
-     * 一个左侧面板图标：直接渲染该插件自己注册的图标组件（`{ size, active }`），
-     * 点击切到对应主面板，选中态与展开态一致。
+     * 一个左侧面板图标：点击切到对应主面板，选中态与展开态一致。
      * @param props - panel / selectPanel / trackEntryClick / usePanelInfo。
      */
     function PanelButton(props) {
@@ -343,15 +483,6 @@ window.__ModuleLoader__.load({
       var active = props.usePanelInfo(function (info) {
         return info.activePanelId === panel.id;
       });
-      var Icon = panel.Icon;
-      var glyph =
-        typeof Icon === 'function' || (typeof Icon === 'object' && Icon !== null)
-          ? h(
-              IconBoundary,
-              { icon: Icon, fallback: h(FallbackPanelIcon, { size: ICON_SIZE }) },
-              h(Icon, { size: ICON_SIZE, active: active }),
-            )
-          : h(FallbackPanelIcon, { size: ICON_SIZE });
       return h(
         RailButton,
         {
@@ -360,14 +491,132 @@ window.__ModuleLoader__.load({
           testId: 'panel',
           panelId: panel.id,
           onClick: function () {
-            var menuName = OFFICIAL_PANEL_ANALYTICS[panel.id];
-            if (typeof menuName === 'string') {
-              props.trackEntryClick({ menu_name: menuName, position: 'titlebar' });
-            }
-            props.selectPanel(panel.id);
+            openPanel(panel, props.selectPanel, props.trackEntryClick);
           },
         },
-        glyph,
+        h(PanelGlyph, { panel: panel, active: active }),
+      );
+    }
+
+    /**
+     * 「更多」菜单里的一行：图标 + 名称，选中态与工具栏图标一致。
+     * 每行自己订阅选中态，菜单开关不连累整条工具栏重渲染。
+     * @param props - panel / onSelect / usePanelInfo。
+     */
+    function PanelMenuItem(props) {
+      var panel = props.panel;
+      var active = props.usePanelInfo(function (info) {
+        return info.activePanelId === panel.id;
+      });
+      return h(
+        'button',
+        {
+          type: 'button',
+          role: 'menuitem',
+          className: 'DFM_menuItem' + (active ? ' DFM_active' : ''),
+          'aria-current': active ? 'page' : undefined,
+          onClick: function () {
+            props.onSelect(panel);
+          },
+        },
+        h(PanelGlyph, { panel: panel, active: active }),
+        h('span', { className: 'DFM_menuLabel' }, panel.label),
+      );
+    }
+
+    /**
+     * 面板区的最后一格：面板多于 `PANEL_SLOTS` 个时取代原图标，
+     * 悬停（带意图延迟）或点击、键盘展开被挤出的面板。
+     * 只服务折叠态工具栏，不改左侧展开菜单的顺序与内容。
+     * @param props - panels（被挤出的部分）/ t / usePanelInfo / onSelect。
+     */
+    function PanelOverflowMenu(props) {
+      var panels = props.panels;
+      var state = React.useState(false);
+      var open = state[0];
+      var setOpen = state[1];
+      var timer = React.useRef(null);
+      var cancel = function () {
+        if (timer.current === null) return;
+        clearTimeout(timer.current);
+        timer.current = null;
+      };
+      var schedule = function (next, delay) {
+        cancel();
+        timer.current = setTimeout(function () {
+          timer.current = null;
+          setOpen(next);
+        }, delay);
+      };
+      React.useEffect(function () {
+        return cancel;
+      }, []);
+      var close = function () {
+        cancel();
+        setOpen(false);
+      };
+      var active = props.usePanelInfo(function (info) {
+        for (var index = 0; index < panels.length; index += 1) {
+          if (panels[index].id === info.activePanelId) return true;
+        }
+        return false;
+      });
+      return h(
+        'div',
+        {
+          className: 'DFM_more',
+          onPointerEnter: function () {
+            schedule(true, MENU_OPEN_DELAY);
+          },
+          onPointerLeave: function () {
+            schedule(false, MENU_CLOSE_DELAY);
+          },
+          onBlur: function (event) {
+            // 键盘把焦点移出这个入口（按钮 + 菜单）时收起，避免留下无主浮层。
+            var next = event.relatedTarget;
+            if (next && event.currentTarget.contains(next)) return;
+            close();
+          },
+          onKeyDown: function (event) {
+            if (event.key !== 'Escape' || !open) return;
+            event.stopPropagation();
+            close();
+          },
+        },
+        h(
+          RailButton,
+          {
+            label: props.t('panels.more'),
+            active: active,
+            testId: 'more-panels',
+            hideTip: true,
+            hasPopup: 'menu',
+            expanded: open,
+            onClick: function () {
+              setOpen(function (value) {
+                return !value;
+              });
+            },
+          },
+          h(MorePanelsIcon, { size: ICON_SIZE }),
+        ),
+        open
+          ? h(
+              'div',
+              { className: 'DFM_menu', role: 'menu', 'aria-label': props.t('panels.more') },
+              panels.map(function (panel) {
+                return h(PanelMenuItem, {
+                  key: panel.id,
+                  panel: panel,
+                  usePanelInfo: props.usePanelInfo,
+                  onSelect: function (selected) {
+                    close();
+                    props.onSelect(selected);
+                  },
+                });
+              }),
+            )
+          : null,
       );
     }
 
@@ -421,6 +670,115 @@ window.__ModuleLoader__.load({
       }, [ref]);
     }
 
+    /* ─────────────────────── 拖到底继续左拖 → 收起 ─────────────────────── */
+
+    /**
+     * 旁听宿主侧栏的拖拽：拖到最小宽度后继续往左拖，松手时收起侧栏。
+     *
+     * 宿主的拖拽手柄带 `data-side="sidebar"`，指针捕获只把事件目标改到手柄，
+     * 事件仍冒泡到 document，所以这里只读不改宿主。判定放在 pointerup 之后
+     * 的一帧：那时宿主已经把最终宽度写进 DOM，用「渲染宽度 − 指针期望宽度」
+     * 判过冲，既不用写死最小宽度，也不会在拖拽中途和宿主抢着写宽度。
+     *
+     * @param layout - 布局服务（`toggleSidebar`）。
+     * @returns 清理函数。
+     */
+    function installDragCollapse(layout) {
+      if (typeof document === 'undefined' || !layout) return undefined;
+
+      var session = null;
+
+      /** 切换「松手即折叠」的指针提示；只影响指针样式，失败也不影响拖拽本身。 */
+      function setArmed(armed) {
+        var root = document.documentElement;
+        if (!root) return;
+        if (armed) root.setAttribute(ARMED_ATTR, '');
+        else root.removeAttribute(ARMED_ATTR);
+      }
+
+      function onPointerMove(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        session.endX = event.clientX;
+        // 拖动中实时提示：过冲量达到阈值就把指针换成「向左收起」形状。
+        var width = parseFloat(session.handle.style.left);
+        if (!Number.isFinite(width)) return;
+        var armed =
+          dragOvershoot(width, session.startWidth, session.startX, event.clientX) >=
+          DRAG_COLLAPSE_OVERSHOOT;
+        if (armed === session.armed) return;
+        session.armed = armed;
+        setArmed(armed);
+      }
+
+      function cleanup() {
+        document.removeEventListener('pointermove', onPointerMove);
+        document.removeEventListener('pointerup', onPointerUp);
+        document.removeEventListener('pointercancel', onPointerCancel);
+        setArmed(false);
+        session = null;
+      }
+
+      function settle(drag) {
+        if (!drag.handle.isConnected) return;
+        var width = parseFloat(drag.handle.style.left);
+        var overshoot = Number.isFinite(width)
+          ? dragOvershoot(width, drag.startWidth, drag.startX, drag.endX)
+          : Number.NEGATIVE_INFINITY;
+        // 指针已经提示「松手折叠」时以提示为准：快速拖动时宽度有一帧滞后，
+        // 否则会出现「指针说会折叠、松手却没折」的不一致。
+        if (drag.armed || overshoot >= DRAG_COLLAPSE_OVERSHOOT) layout.toggleSidebar();
+      }
+
+      function onPointerUp(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        var drag = session;
+        drag.endX = event.clientX;
+        cleanup();
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(function () {
+            settle(drag);
+          });
+        } else {
+          settle(drag);
+        }
+      }
+
+      function onPointerCancel(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        cleanup();
+      }
+
+      function onPointerDown(event) {
+        if (event.button !== 0 || session) return;
+        // 本插件只服务 macOS 桌面折叠态；其它平台不接管拖拽语义。
+        // 每个 pointerdown 现查平台属性，避免插件先于桌面 preload 启动时静默失效。
+        if (document.documentElement.getAttribute('data-platform') !== 'darwin') return;
+        var target = event.target;
+        var handle =
+          target && typeof target.closest === 'function' ? target.closest('[data-side="sidebar"]') : null;
+        if (!handle) return;
+        var startWidth = parseFloat(handle.style.left);
+        if (!Number.isFinite(startWidth)) return;
+        session = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          endX: event.clientX,
+          startWidth: startWidth,
+          handle: handle,
+          armed: false,
+        };
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
+        document.addEventListener('pointercancel', onPointerCancel);
+      }
+
+      document.addEventListener('pointerdown', onPointerDown);
+      return function () {
+        cleanup();
+        document.removeEventListener('pointerdown', onPointerDown);
+      };
+    }
+
     /* ──────────────────────────── 工具栏 ──────────────────────────── */
 
     /**
@@ -464,16 +822,30 @@ window.__ModuleLoader__.load({
         ),
       ];
 
+      var split = splitPanels(panels);
       if (panels.length > 0) {
         children.push(h(Divider, { key: 'rail:divider-panels' }));
-        for (var index = 0; index < panels.length; index += 1) {
+        for (var index = 0; index < split.visible.length; index += 1) {
           children.push(
             h(PanelButton, {
-              key: 'panel:' + panels[index].id,
-              panel: panels[index],
+              key: 'panel:' + split.visible[index].id,
+              panel: split.visible[index],
               selectPanel: props.selectPanel,
               trackEntryClick: props.trackEntryClick,
               usePanelInfo: usePanelInfo,
+            }),
+          );
+        }
+        if (split.overflow.length > 0) {
+          children.push(
+            h(PanelOverflowMenu, {
+              key: 'rail:more-panels',
+              panels: split.overflow,
+              t: t,
+              usePanelInfo: usePanelInfo,
+              onSelect: function (panel) {
+                openPanel(panel, props.selectPanel, props.trackEntryClick);
+              },
             }),
           );
         }
@@ -542,6 +914,12 @@ window.__ModuleLoader__.load({
 
       ctx.effect(injectStyles, 'fold-minimal: styles');
 
+      // 拖拽收起只在 darwin 生效（installDragCollapse 内部判定），
+      // 生命周期跟随插件启停。
+      ctx.effect(function () {
+        return installDragCollapse(ctx.layout);
+      }, 'fold-minimal: drag to collapse');
+
       var panels = createPanelsSource(ctx);
       ctx.effect(function () {
         return ctx.slots.subscribe(PANEL_SLOT, panels.sync);
@@ -606,10 +984,15 @@ window.__ModuleLoader__.load({
         NS: NS,
         SLOT: SLOT,
         PANEL_SLOT: PANEL_SLOT,
+        PANEL_SLOTS: PANEL_SLOTS,
+        DRAG_COLLAPSE_OVERSHOOT: DRAG_COLLAPSE_OVERSHOOT,
         dictionaries: { zh: zh, en: en },
         labelOf: labelOf,
         buildPanels: buildPanels,
         samePanels: samePanels,
+        splitPanels: splitPanels,
+        dragOvershoot: dragOvershoot,
+        installDragCollapse: installDragCollapse,
         isPanelActive: isPanelActive,
       },
     };

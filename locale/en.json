@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Fold Minimal",
-    "description": "When the sidebar is collapsed, keeps a toolbar at the window's top-left — reopen / global panel icons in the same order as the sidebar menu / new session — mapping every left-column panel into the collapsed state. While a global panel is open, a back-to-session button appears after New Session to return to the last working session."
+    "description": "When the sidebar is collapsed, keeps a toolbar at the window's top-left — reopen / global panel icons in the same order as the sidebar menu / new session — mapping every left-column panel into the collapsed state. Past four panels the fourth slot becomes a More button whose menu opens on hover; dragging the sidebar below its minimum width collapses it on release. While a global panel is open, a back-to-session button appears after New Session to return to the last working session."
   }
 }
