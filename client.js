@@ -16,7 +16,7 @@
  *  - 折叠态按工具栏实测宽度改写 `--dsh-frame-leading-clearance`，让会话标题
  *    让位；展开/卸载时移除。
  *  - v0.4 起，侧栏展开时在收起按钮左侧注入「返回会话」按钮。
- *  - v0.4 新增可选部件「面板排序与折叠」（设置 → 通用里开启）：
+ *  - v0.4 新增可选部件「面板挪位与折叠」（插件详情页的组件开关开启）：
  *    对 `sidebar.panellist` 的每个面板以同 id、更低 priority 做「影子注册」改写
  *    order，宿主的 entriesOfSlot 同 id 取最低 priority，于是展开侧栏、折叠工具栏
  *    与「更多」菜单天然共享同一顺序；影子组件外面包一层带 `data-dfm-id` 的
@@ -136,8 +136,10 @@ window.__ModuleLoader__.load({
       'session.new.label': '新建会话',
       'session.back.label': '返回会话',
       'panels.more': '更多面板',
-      'layout.title': '面板排序与折叠',
-      'layout.description': '开启后：长按拖动面板可调整顺序；把面板拖进「更多」可收起来。',
+      'layout.title': '面板挪位与折叠',
+      'layout.description': '0.4 新增：长按拖动面板调整顺序，展开侧栏与折叠工具栏同步；把面板拖进「更多」可收起，再拖回恢复。',
+      'settings.toolbar.title': '折叠菜单',
+      'settings.toolbar.desc': '原有功能：侧栏折叠后在窗口左上角显示面板图标；拖到最窄继续左拖可收起；返回会话按钮。',
       'layout.reset': '恢复默认排序',
       'tray.label': '已收起的面板',
       'tray.empty': '把上面的面板拖到这里收起',
@@ -151,8 +153,10 @@ window.__ModuleLoader__.load({
       'session.new.label': 'New session',
       'session.back.label': 'Back to session',
       'panels.more': 'More panels',
-      'layout.title': 'Panel order & fold',
-      'layout.description': 'When on: long-press a panel to reorder it; drag a panel into More to put it away.',
+      'layout.title': 'Panel reorder & fold',
+      'layout.description': 'New in 0.4: long-press a panel to reorder it; the expanded list and the collapsed toolbar share one order. Drag a panel into More to put it away, and drag it back to restore.',
+      'settings.toolbar.title': 'Collapsed menu',
+      'settings.toolbar.desc': 'Original component: maps panel icons to the top-left toolbar when the sidebar is collapsed; dragging past the minimum width collapses it; back-to-session buttons.',
       'layout.reset': 'Reset panel order',
       'tray.label': 'Hidden panels',
       'tray.empty': 'Drag a panel here to put it away',
@@ -247,9 +251,11 @@ window.__ModuleLoader__.load({
       // 「更多」菜单里被拆分出来的分组。
       '.DFM_menuDivider{height:1px;margin:4px 6px;background:var(--dsw-alias-border-l2);opacity:.7}',
       '.DFM_menuGroup{padding:4px 8px 2px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}',
-      // 设置 → 通用里的开关行（版式与宿主偏好行一致）。
+      // 插件详情页组件开关行（版式与宿主偏好行一致）。
+      '.DFM_pluginSettings{width:100%}',
       '.DFM_setRow{box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;',
       'gap:24px;padding:16px 0;border-bottom:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}',
+      '.DFM_setRowLast{border-bottom:none}',
       '.DFM_setText{min-width:0}',
       '.DFM_setTitle{font-size:14px;line-height:20px}',
       '.DFM_setDesc{margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}',
@@ -516,6 +522,8 @@ window.__ModuleLoader__.load({
         enabled: source.enabled === true,
         order: clean(source.order),
         hidden: clean(source.hidden),
+        // 原有「折叠菜单」组件默认开启；只有显式保存为 false 才关闭。
+        toolbar: source.toolbar !== false,
       };
     }
 
@@ -604,6 +612,7 @@ window.__ModuleLoader__.load({
       var prefs = sanitizeLayoutPrefs(initial);
       var snapshot = {
         enabled: prefs.enabled,
+        toolbarEnabled: prefs.toolbar,
         order: prefs.order,
         hidden: prefs.hidden,
         trayOpen: false,
@@ -617,6 +626,7 @@ window.__ModuleLoader__.load({
       var patch = function (changes, persist) {
         var next = {
           enabled: snapshot.enabled,
+          toolbarEnabled: snapshot.toolbarEnabled,
           order: snapshot.order,
           hidden: snapshot.hidden,
           trayOpen: snapshot.trayOpen,
@@ -626,7 +636,14 @@ window.__ModuleLoader__.load({
           if (Object.prototype.hasOwnProperty.call(changes, key)) next[key] = changes[key];
         }
         snapshot = next;
-        if (persist) writeLayoutPrefs(next);
+        if (persist) {
+          writeLayoutPrefs({
+            enabled: next.enabled,
+            order: next.order,
+            hidden: next.hidden,
+            toolbar: next.toolbarEnabled,
+          });
+        }
         notify();
       };
       return {
@@ -654,6 +671,9 @@ window.__ModuleLoader__.load({
         },
         setEnabled: function (enabled) {
           patch({ enabled: enabled === true, preview: null, trayOpen: enabled === true ? snapshot.trayOpen : false }, true);
+        },
+        setToolbarEnabled: function (enabled) {
+          patch({ toolbarEnabled: enabled === true, preview: null }, true);
         },
         setOrder: function (order) {
           patch({ order: sanitizeLayoutPrefs({ order: order }).order }, true);
@@ -1426,29 +1446,54 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 设置 → 通用里的「面板排序与折叠」开关行。
-     * @param props - t / useLayout / setLayoutEnabled。
+     * 插件详情页（`plugins.bundle.config`）里的两个组件开关：
+     *  - 「折叠菜单」：原有的折叠态工具栏 / 拖拽收起 / 返回会话，默认开；
+     *  - 「面板挪位与折叠」：v0.4 新增的排序与收进「更多」，默认关。
+     * @param props - t / useLayout / setToolbarEnabled / setLayoutEnabled。
      */
-    function PanelLayoutSettingsRow(props) {
-      var enabled = props.useLayout(function (snapshot) {
-        return snapshot.enabled;
+    function PluginSettingsSection(props) {
+      var snapshot = props.useLayout(function (state) {
+        return state;
       });
+      var toolbarTitle = props.t('settings.toolbar.title');
+      var layoutTitle = props.t('layout.title');
       return h(
         'div',
-        { className: 'DFM_setRow' },
+        { className: 'DFM_pluginSettings' },
         h(
           'div',
-          { className: 'DFM_setText' },
-          h('div', { className: 'DFM_setTitle' }, props.t('layout.title')),
-          h('div', { className: 'DFM_setDesc' }, props.t('layout.description')),
+          { className: 'DFM_setRow' },
+          h(
+            'div',
+            { className: 'DFM_setText' },
+            h('div', { className: 'DFM_setTitle' }, toolbarTitle),
+            h('div', { className: 'DFM_setDesc' }, props.t('settings.toolbar.desc')),
+          ),
+          h(Switch, {
+            checked: snapshot.toolbarEnabled !== false,
+            label: toolbarTitle,
+            onChange: function (next) {
+              props.setToolbarEnabled(next);
+            },
+          }),
         ),
-        h(Switch, {
-          checked: enabled,
-          label: props.t('layout.title'),
-          onChange: function (next) {
-            props.setLayoutEnabled(next);
-          },
-        }),
+        h(
+          'div',
+          { className: 'DFM_setRow DFM_setRowLast' },
+          h(
+            'div',
+            { className: 'DFM_setText' },
+            h('div', { className: 'DFM_setTitle' }, layoutTitle),
+            h('div', { className: 'DFM_setDesc' }, props.t('layout.description')),
+          ),
+          h(Switch, {
+            checked: snapshot.enabled === true,
+            label: layoutTitle,
+            onChange: function (next) {
+              props.setLayoutEnabled(next);
+            },
+          }),
+        ),
       );
     }
 
@@ -1546,6 +1591,8 @@ window.__ModuleLoader__.load({
       // 1) 展开态返回按钮：仅在「侧栏展开 + 面板打开」时插入宿主顶栏。
       React.useLayoutEffect(function () {
         if (typeof document === 'undefined' || !wide || !panelActive) return undefined;
+        // 返回按钮属于原有「折叠菜单」组件；关闭该组件时不注入。
+        if (layout.toolbarEnabled === false) return undefined;
         var root = document.documentElement;
         if (!root || root.getAttribute('data-platform') !== 'darwin') return undefined;
         var toggle = document.querySelector('[data-sidebar-toggle]');
@@ -1576,7 +1623,7 @@ window.__ModuleLoader__.load({
           button.removeEventListener('click', onClick);
           if (button.parentNode) button.parentNode.removeChild(button);
         };
-      }, [wide, panelActive]);
+      }, [wide, panelActive, layout.toolbarEnabled]);
 
       // 2) 「更多」行 chevron + 二级区容器（开关开启时才出现）。
       React.useLayoutEffect(function () {
@@ -2534,12 +2581,6 @@ window.__ModuleLoader__.load({
 
       ctx.effect(injectStyles, 'fold-minimal: styles');
 
-      // 拖拽收起只在 darwin 生效（installDragCollapse 内部判定），
-      // 生命周期跟随插件启停。
-      ctx.effect(function () {
-        return installDragCollapse(ctx.layout);
-      }, 'fold-minimal: drag to collapse');
-
       var panels = createPanelsSource(ctx);
       var layout = createPanelLayoutStore(readLayoutPrefs());
       var shadows = createShadowManager(ctx, layout);
@@ -2593,6 +2634,9 @@ window.__ModuleLoader__.load({
         setLayoutEnabled: function (enabled) {
           layout.setEnabled(enabled);
         },
+        setToolbarEnabled: function (enabled) {
+          layout.setToolbarEnabled(enabled);
+        },
       };
 
       var actions = {
@@ -2623,32 +2667,70 @@ window.__ModuleLoader__.load({
         },
       };
 
-      // priority -1 覆盖 ui-sidebar 在 shell.leading 的 occupant：
-      // single 槽位「最低 priority 渲染」，于是本工具栏接管折叠态左上角。
-      ctx.slots.inject(SLOT, function () {
-        return ctx.slots.register(
-          {
-            name: SLOT,
-            priority: -1,
-            locale: NS,
-            inject: function () {
-              return {
-                toggleSidebar: actions.toggleSidebar,
-                startSession: actions.startSession,
-                selectPanel: actions.selectPanel,
-                backToSession: actions.backToSession,
-                trackEntryClick: actions.trackEntryClick,
-                hooks: {
-                  shortcuts: ctx.shortcuts.catalog,
-                  panels: panels.source,
-                  layout: layout.observable,
+      // 原有「折叠菜单」组件的生命周期：插件设置里关闭时撤销 shell.leading
+      // 注册，宿主官方按钮自动回来；拖拽收起也属于这个组件。
+      ctx.effect(function () {
+        var dispose = null;
+        var sync = function () {
+          var enabled = layout.getSnapshot().toolbarEnabled !== false;
+          if (enabled && !dispose) {
+            dispose = ctx.slots.inject(SLOT, function () {
+              return ctx.slots.register(
+                {
+                  name: SLOT,
+                  priority: -1,
+                  locale: NS,
+                  inject: function () {
+                    return {
+                      toggleSidebar: actions.toggleSidebar,
+                      startSession: actions.startSession,
+                      selectPanel: actions.selectPanel,
+                      backToSession: actions.backToSession,
+                      trackEntryClick: actions.trackEntryClick,
+                      hooks: {
+                        shortcuts: ctx.shortcuts.catalog,
+                        panels: panels.source,
+                        layout: layout.observable,
+                      },
+                    };
+                  },
                 },
-              };
-            },
-          },
-          LeadingRail,
-        );
-      });
+                LeadingRail,
+              );
+            });
+          } else if (!enabled && dispose) {
+            dispose();
+            dispose = null;
+          }
+        };
+        var off = layout.subscribe(sync);
+        sync();
+        return function () {
+          off();
+          if (dispose) dispose();
+        };
+      }, 'fold-minimal: toolbar component');
+
+      // 拖拽收起只在 darwin 生效（installDragCollapse 内部判定），
+      // 且跟随「折叠菜单」组件的开关。
+      ctx.effect(function () {
+        var dispose = null;
+        var sync = function () {
+          var enabled = layout.getSnapshot().toolbarEnabled !== false;
+          if (enabled && !dispose) {
+            dispose = installDragCollapse(ctx.layout) || null;
+          } else if (!enabled && dispose) {
+            dispose();
+            dispose = null;
+          }
+        };
+        var off = layout.subscribe(sync);
+        sync();
+        return function () {
+          off();
+          if (dispose) dispose();
+        };
+      }, 'fold-minimal: drag to collapse');
 
       // 展开态：返回按钮 + 「更多」行 chevron + 下方二级区。
       // 组件不渲染视觉内容，只对宿主侧栏 chrome 做增量增强。
@@ -2676,22 +2758,22 @@ window.__ModuleLoader__.load({
         );
       });
 
-      // 设置 → 通用：新部件的开关（默认关）。
-      ctx.slots.inject('settings.general.item', function () {
+      // 插件详情页（Plugins → dsh-fold-minimal）里的两个组件开关。
+      ctx.slots.inject('plugins.bundle.config', function () {
         return ctx.slots.register(
           {
-            name: 'settings.general.item',
-            id: 'fold-minimal.panel-layout',
-            order: 25,
+            name: 'plugins.bundle.config',
+            key: 'dsh-fold-minimal',
             locale: NS,
             inject: function () {
               return {
+                setToolbarEnabled: layoutActions.setToolbarEnabled,
                 setLayoutEnabled: layoutActions.setLayoutEnabled,
                 hooks: { layout: layout.observable },
               };
             },
           },
-          PanelLayoutSettingsRow,
+          PluginSettingsSection,
         );
       });
 
@@ -2758,7 +2840,6 @@ window.__ModuleLoader__.load({
         installDragCollapse: installDragCollapse,
         installPanelDrag: installPanelDrag,
         installRailDrag: installRailDrag,
-        createPanelLayoutStore: createPanelLayoutStore,
         isPanelActive: isPanelActive,
       },
     };

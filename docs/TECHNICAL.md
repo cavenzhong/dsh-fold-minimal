@@ -50,12 +50,26 @@
 
 ## v0.4：面板排序与折叠（可选部件）
 
+### 两个组件开关
+
+插件详情页（`plugins.bundle.config`，key 为包名 `dsh-fold-minimal`）注册一个
+设置区块，里面是 2 个组件开关：
+
+- **折叠菜单**（`toolbarEnabled`，默认开）：原有的折叠态工具栏（`shell.leading`
+  priority `-1`）、拖到最小继续左拖收起、折叠/展开态返回会话按钮。关闭时动态
+  撤销 `shell.leading` 注册与拖拽手势，宿主官方按钮立刻回来；展开态返回按钮
+  也随之移除。
+- **面板挪位与折叠**（`enabled`，默认关）：v0.4 新增的影子排序、长按拖拽、
+  「更多」chevron/二级区与收起项。关闭时撤销全部影子并移除这些 chrome。
+
+两个组件相互独立：只开「面板挪位与折叠」时，展开侧栏的排序/收起仍可用，
+折叠工具栏相关增强则不出现。
+
 ### 开关与状态
 
-- 在 `settings.general.item` 注册一行「面板排序与折叠」，`order: 25`，用一个
-  与宿主 primitive 同款（`role="switch"` + `aria-checked`）的开关控制。
-- 默认关闭；关闭时插件行为与 v0.3 完全一致。
-- 状态 `{ enabled, order, hidden }` 由 `createPanelLayoutStore` 持有：
+- 开关行用一个与宿主 primitive 同款（`role="switch"` + `aria-checked`）的
+  按钮实现；文案走 locale。
+- 状态 `{ enabled, toolbarEnabled, order, hidden }` 由 `createPanelLayoutStore` 持有：
   - **cookie 是主存储**：DSH 桌面每次启动给 Web GUI 分配随机本地端口，而
     `localStorage` 按 origin（含端口）隔离，重启会丢；cookie 只按 host 隔离，
     能跨端口保留。键为 `dsh_fold_minimal_panel_layout_v1`，`Max-Age` 一年。
@@ -164,7 +178,7 @@ plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
 | 文件 | 作用 |
 |---|---|
 | `index.js` | Host 半，空实现（bundle 行需要一个包主模块）。 |
-| `client.js` | 浏览器半：`shell.leading` 折叠工具栏（priority `-1`）、展开态返回按钮注入、`settings.general.item` 开关、`sidebar.panellist` 影子注册与长按拖拽、`sidebar.footer.action` 里的 More chevron/二级区/portal、`sidebar.panellist.actions` 的 More 锚点、状态 store 与 cookie 持久化、拖到底继续左拖即收起、clearance 同步。 |
+| `client.js` | 浏览器半：`shell.leading` 折叠工具栏（priority `-1`，随「折叠菜单」开关动态注册）、展开态返回按钮注入、`plugins.bundle.config` 的两个组件开关、`sidebar.panellist` 影子注册与长按拖拽、`sidebar.footer.action` 里的 More chevron/二级区/portal、`sidebar.panellist.actions` 的 More 锚点、状态 store 与 cookie 持久化、拖到底继续左拖即收起、clearance 同步。 |
 | `cordis.patch.yml` | Loader 行 `fold-minimal`。 |
 | `locale/zh.json`、`locale/en.json` | Plugins 页展示用标题/描述。 |
 | `icon.svg` | 插件图标。 |
@@ -253,10 +267,10 @@ Node 22 / 24 运行同一套 `node --test`；测试无第三方依赖，不需�
 
 ## 更新记录
 
-- **0.4.0**：展开侧栏新增「返回会话」按钮（收起按钮左侧）；新增可选部件
-  「面板排序与折叠」（设置 → 通用，默认关闭）：影子注册统一展开/折叠顺序、
-  两处长按拖拽排序、面板拖进「更多」二级区收起并拖回恢复；状态用 host 级
-  cookie 跨端口持久化。
+- **0.4.0**：插件详情页新增 2 个组件开关（折叠菜单默认开 / 面板挪位与折叠
+  默认关）；展开侧栏新增「返回会话」按钮（收起按钮左侧）；「面板挪位与折叠」
+  用影子注册统一展开/折叠顺序、两处长按拖拽排序、面板拖进「更多」二级区收起
+  并拖回恢复；状态用 host 级 cookie 跨端口持久化。
 - **0.3.0**：面板区固定 4 格，第 5 个面板出现时第 4 格变成「更多」，悬停展开
   其余面板；侧栏拖到最小宽度后继续往左拖，越过阈值时指针切换为「向左收起」、
   松手即收起。两项都不加配置项。

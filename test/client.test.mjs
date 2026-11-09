@@ -84,6 +84,8 @@ test('中英文语言表键集合一致且都有文案', () => {
     'layout.title',
     'layout.description',
     'layout.reset',
+    'settings.toolbar.title',
+    'settings.toolbar.desc',
     'tray.label',
     'tray.empty',
     'tray.expand',
@@ -351,16 +353,22 @@ test('panelsInOrder：按顺序重排，缺失项按原序补尾', () => {
 });
 
 test('sanitizeLayoutPrefs：非法值回落到关闭，id 去重且丢弃空值', () => {
-  assert.deepEqual(sanitizeLayoutPrefs(null), { enabled: false, order: [], hidden: [] });
+  assert.deepEqual(sanitizeLayoutPrefs(null), {
+    enabled: false,
+    order: [],
+    hidden: [],
+    toolbar: true,
+  });
   assert.deepEqual(
     sanitizeLayoutPrefs({
       enabled: 'yes',
       order: ['a', 'a', '', 3, 'b'],
       hidden: ['c', null, 'c'],
     }),
-    { enabled: false, order: ['a', 'b'], hidden: ['c'] },
+    { enabled: false, order: ['a', 'b'], hidden: ['c'], toolbar: true },
   );
-  assert.deepEqual(sanitizeLayoutPrefs({ enabled: true }).enabled, true);
+  assert.equal(sanitizeLayoutPrefs({ enabled: true }).enabled, true);
+  assert.equal(sanitizeLayoutPrefs({ toolbar: false }).toolbar, false);
 });
 
 test('面板排序 store：开关/顺序/收起/预览/重置', () => {
@@ -371,6 +379,7 @@ test('面板排序 store：开关/顺序/收起/预览/重置', () => {
   });
   assert.deepEqual(store.getSnapshot(), {
     enabled: true,
+    toolbarEnabled: true,
     order: ['b'],
     hidden: ['a'],
     trayOpen: false,
@@ -382,6 +391,8 @@ test('面板排序 store：开关/顺序/收起/预览/重置', () => {
   });
   store.setEnabled(false);
   assert.equal(store.getSnapshot().enabled, false);
+  store.setToolbarEnabled(false);
+  assert.equal(store.getSnapshot().toolbarEnabled, false);
   store.hidePanel('c');
   assert.deepEqual(store.getSnapshot().hidden, ['a', 'c']);
   store.showPanel('a');
@@ -402,11 +413,11 @@ test('面板排序 store：开关/顺序/收起/预览/重置', () => {
   unsubscribe();
 });
 
-test('apply 注册展开态 chrome、设置开关与工具栏 hooks', () => {
+test('apply 注册展开态 chrome、插件页组件开关与工具栏 hooks', () => {
   const { registered } = renderRail({ activePanelId: null });
   const names = registered.map((candidate) => candidate.options.name);
   assert.ok(names.includes('sidebar.footer.action'), '缺少展开态 chrome 注册');
-  assert.ok(names.includes('settings.general.item'), '缺少设置开关注册');
+  assert.ok(names.includes('plugins.bundle.config'), '缺少插件页组件开关注册');
   const chrome = registered.find(
     (candidate) =>
       candidate.options.name === 'sidebar.footer.action' &&
@@ -418,10 +429,41 @@ test('apply 注册展开态 chrome、设置开关与工具栏 hooks', () => {
   assert.equal(typeof chromeProps.toggleTray, 'function');
   const settings = registered.find(
     (candidate) =>
-      candidate.options.name === 'settings.general.item' &&
-      candidate.options.id === 'fold-minimal.panel-layout',
+      candidate.options.name === 'plugins.bundle.config' &&
+      candidate.options.key === 'dsh-fold-minimal',
   );
-  assert.ok(settings, '设置开关行应注册到 settings.general.item');
+  assert.ok(settings, '组件开关应注册到插件详情页 plugins.bundle.config');
+  const settingsProps = settings.options.inject();
+  assert.equal(typeof settingsProps.setToolbarEnabled, 'function');
+  assert.equal(typeof settingsProps.setLayoutEnabled, 'function');
+
+  // 渲染两个开关行：折叠菜单（默认开）+ 面板挪位与折叠（默认关）。
+  const changes = [];
+  const injected = settings.options.inject();
+  const tree = settings.component({
+    ...injected,
+    t: (key) => key,
+    useLayout: (selector) => selector({ ...EMPTY_LAYOUT, toolbarEnabled: true }),
+    setToolbarEnabled: (next) => changes.push(['toolbar', next]),
+    setLayoutEnabled: (next) => changes.push(['layout', next]),
+  });
+  const switches = flatten(tree).filter(
+    (element) =>
+      typeof element.type === 'function' &&
+      element.props &&
+      (element.props.label === 'settings.toolbar.title' || element.props.label === 'layout.title'),
+  );
+  assert.equal(switches.length, 2, '插件设置里应显示两个组件开关');
+  const toolbarSwitch = switches.find((element) => element.props.label === 'settings.toolbar.title');
+  const layoutSwitch = switches.find((element) => element.props.label === 'layout.title');
+  assert.equal(toolbarSwitch.props.checked, true, '折叠菜单默认开启');
+  assert.equal(layoutSwitch.props.checked, false, '面板挪位与折叠默认关闭');
+  toolbarSwitch.props.onChange(false);
+  layoutSwitch.props.onChange(true);
+  assert.deepEqual(changes, [
+    ['toolbar', false],
+    ['layout', true],
+  ]);
 });
 
 test('折叠态工具栏：开启排序与折叠后，收起项进 More，预览顺序生效', () => {
