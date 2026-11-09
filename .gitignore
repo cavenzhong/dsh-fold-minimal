@@ -1,3 +1,14 @@
 node_modules/
+.pnpm-store/
+
+# Local editor / agent state
+.agents/
+.codex/
 .DS_Store
 *.log
+
+# Local secrets and release bundles
+.env
+.env.*
+!.env.example
+*.tgz
