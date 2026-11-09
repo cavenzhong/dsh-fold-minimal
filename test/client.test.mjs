@@ -12,6 +12,7 @@ const fakeReact = {
   Component: class Component {},
   useRef: (initial) => ({ current: initial }),
   useLayoutEffect: () => {},
+  useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
 };
 
 let captured = null;
@@ -51,10 +52,13 @@ const {
   panelIdsOf,
   sanitizeLayoutPrefs,
   createPanelLayoutStore,
+  createShadowPanel,
+  placePanel,
   dragOvershoot,
   installDragCollapse,
   installPanelDrag,
   installRailDrag,
+  installSidebarMoreHover,
   isPanelActive,
 } = exports.__test;
 
@@ -383,6 +387,7 @@ test('面板排序 store：开关/顺序/收起/预览/重置', () => {
     hidden: ['a'],
     trayOpen: false,
     dragActive: false,
+    dragPanelId: null,
     preview: null,
   });
   let notifications = 0;
@@ -508,7 +513,7 @@ test('折叠态工具栏：开启排序与折叠后，收起项进 More；存在
   );
 });
 
-test('折叠态工具栏：拖拽期间所有未收起面板临时平铺，More 仍在最后', () => {
+test('折叠态工具栏：拖动时平铺全部面板并标明隐藏区，松手恢复紧凑布局', () => {
   const layout = {
     enabled: true,
     toolbarEnabled: true,
@@ -523,22 +528,14 @@ test('折叠态工具栏：拖拽期间所有未收起面板临时平铺，More 
   const buttons = elements.filter((element) => element.props.panel !== undefined);
   assert.deepEqual(
     buttons.map((element) => element.props.panel.id),
-    ['panel-0', 'panel-1', 'panel-2', 'panel-3', 'panel-4'],
-    '拖拽中应平铺所有未收起的面板',
+    ['panel-0', 'panel-1', 'panel-2', 'panel-3', 'panel-4', 'panel-5'],
+    '拖拽中应平铺全部面板，包括已收起项',
   );
-  const overflow = elements.find(
-    (element) => typeof element.type === 'function' && Array.isArray(element.props.hiddenPanels),
-  );
-  assert.ok(overflow, '仍有收起项时应保留 More');
-  assert.deepEqual(
-    overflow.props.panels,
-    [],
-    '平铺时没有溢出的面板',
-  );
-  assert.deepEqual(
-    overflow.props.hiddenPanels.map((panel) => panel.id),
-    ['panel-5'],
-  );
+  const zones = elements.filter((node) => node.props['data-dfm-rail-zone']);
+  assert.deepEqual(zones.map((node) => node.props['data-dfm-rail-zone']), ['visible', 'hidden']);
+  assert.deepEqual(flatten(zones[1]).filter((node) => node.props.panel).map((node) => node.props.panel.id), ['panel-5']);
+  assert.ok(flatten(zones[1]).some((node) => node.children?.includes('rail.hide')), '隐藏区有文字提示');
+  assert.equal(elements.some((node) => node.props.hiddenPanels), false, '拖动时不再保留重复的 More 菜单');
 
   const idle = flatten(
     renderRail({ activePanelId: null }, panels, { ...layout, dragActive: false }).tree,
@@ -719,11 +716,13 @@ function createPanelEnv(platform) {
   const rect = { top: 0, left: 0, right: 100, bottom: 32, width: 100, height: 32 };
   const style = { removeProperty() {}, setProperty() {} };
   const classList = { add() {}, remove() {} };
+  const nav = {};
   const row = {
     style,
     classList,
     getAttribute: () => null,
-    closest: () => null,
+    parentElement: nav,
+    closest: (selector) => selector === 'nav' ? nav : selector === 'button' ? row : null,
     getBoundingClientRect: () => rect,
   };
   const marker = {
@@ -788,6 +787,7 @@ function createPanelEnv(platform) {
   return {
     document,
     marker,
+    rail,
     railButton,
     listenerCount: () => [...listeners.values()].reduce((total, fns) => total + fns.length, 0),
     dispatch(type, event) {
@@ -814,7 +814,7 @@ test('面板拖拽控制器：安装、快速点击、卸载都干净地增删�
       clientY: 10,
       target: expanded.marker,
     });
-    assert.equal(expanded.listenerCount(), base + 3, '拖拽期间临时挂三个指针监听');
+    assert.equal(expanded.listenerCount(), base + 4, '拖拽期间临时挂指针与 Esc 监听');
     expanded.dispatch('pointerup', { pointerId: 1, clientX: 50, clientY: 10 });
     assert.equal(expanded.listenerCount(), base, '快速点击后撤掉临时监听');
     disposeExpanded();
@@ -848,6 +848,234 @@ test('面板拖拽控制器：安装、快速点击、卸载都干净地增删�
     });
     assert.equal(disabled.listenerCount(), 1, '开关关闭时不应进入拖拽会话');
     disposeOff();
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test('收起面板只隐藏宿主主列表行，二级列表、浮层和工具栏复用图标时仍可见', () => {
+  const store = createPanelLayoutStore({ enabled: true, hidden: ['panel-0'] });
+  const Shadow = createShadowPanel('panel-0', () => null, store);
+  const nav = {};
+  const savedRef = fakeReact.useRef;
+  const savedEffect = fakeReact.useLayoutEffect;
+  try {
+    for (const location of ['host', 'tray', 'popup', 'rail']) {
+      const parent = location === 'host' ? nav : {};
+      const attrs = new Map();
+      const row = {
+        style: {},
+        parentElement: parent,
+        closest: (selector) => selector === 'nav' && location !== 'popup' && location !== 'rail' ? nav : null,
+        setAttribute: (name, value) => attrs.set(name, value),
+      };
+      const marker = { closest: (selector) => selector === 'button' ? row : null };
+      fakeReact.useRef = () => ({ current: marker });
+      fakeReact.useLayoutEffect = (effect) => effect();
+      Shadow({ size: 16 });
+      assert.equal(row.style.display, location === 'host' ? 'none' : undefined, location);
+      assert.equal(attrs.has('data-dfm-row-id'), location === 'host', location);
+    }
+  } finally {
+    fakeReact.useRef = savedRef;
+    fakeReact.useLayoutEffect = savedEffect;
+  }
+});
+
+test('原生更多分组在固定动作之前注册；收起时显示隐藏项，展开二级区或拖动时不重复显示', () => {
+  const { registered } = renderRail({ activePanelId: null });
+  const settings = registered.find((item) => item.options.name === 'plugins.bundle.config');
+  settings.options.inject().setLayoutEnabled(true);
+  const entry = registered.find((item) => item.options.id === 'fold-minimal.more-anchor');
+  assert.ok(entry.options.order < 0);
+  assert.ok(entry.options.inject().hooks.panels);
+  const layout = { enabled: true, hidden: ['panel-1', 'panel-2'], order: ['panel-2', 'panel-0', 'panel-1'] };
+  function items(state) {
+    return flatten(entry.component({
+      useLayout: (select) => select(state),
+      usePanels: (select) => select(fakePanels(3)),
+      usePanelInfo: (select) => select({ activePanelId: null }),
+    })).filter((node) => node.props?.trayItem).map((node) => node.props.panel.id);
+  }
+  assert.deepEqual(items(layout), ['panel-2', 'panel-1']);
+  assert.deepEqual(items({ ...layout, trayOpen: true }), []);
+  assert.deepEqual(items({ ...layout, dragActive: true }), []);
+  assert.deepEqual(items({ ...layout, enabled: false }), []);
+});
+
+test('跨组放置一次提交顺序与显隐，恢复到指定位置时没有中间状态', () => {
+  const panels = fakePanels(5);
+  const store = createPanelLayoutStore({ enabled: true, hidden: ['panel-3', 'panel-4'] });
+  const snapshots = [];
+  store.subscribe(() => snapshots.push(store.getSnapshot()));
+  placePanel(store, panels, 'panel-4', 0, false);
+  assert.equal(snapshots.length, 1);
+  assert.deepEqual(snapshots[0].order, ['panel-4', 'panel-0', 'panel-1', 'panel-3', 'panel-2']);
+  assert.deepEqual(snapshots[0].hidden, ['panel-3']);
+  placePanel(store, panels, 'panel-0', 0, true);
+  assert.equal(snapshots.length, 2);
+  const state = store.getSnapshot();
+  const split = splitPanels(panelsInOrder(panels, state.order), state.hidden);
+  assert.deepEqual(split.hidden.map((panel) => panel.id), ['panel-0', 'panel-3']);
+  assert.deepEqual(split.visible.map((panel) => panel.id), ['panel-4', 'panel-1', 'panel-2']);
+  placePanel(store, panels, 'removed-panel', 0, false);
+  assert.equal(snapshots.length, 2, '失效面板不应被加回顺序');
+});
+
+test('从更多拖出面板时所有收起项保留在隐藏区，松手前不修改状态', () => {
+  const layout = { enabled: true, hidden: ['panel-3', 'panel-4'], order: [], dragActive: true, dragPanelId: 'panel-4' };
+  const elements = flatten(renderRail({ activePanelId: null }, fakePanels(5), layout).tree);
+  assert.deepEqual(elements.filter((node) => node.props?.panel).map((node) => node.props.panel.id),
+    ['panel-0', 'panel-1', 'panel-2', 'panel-3', 'panel-4']);
+  assert.deepEqual(layout.hidden, ['panel-3', 'panel-4']);
+  const hidden = elements.find((node) => node.props['data-dfm-rail-zone'] === 'hidden');
+  assert.deepEqual(flatten(hidden).filter((node) => node.props.panel).map((node) => node.props.panel.id), ['panel-3', 'panel-4']);
+});
+
+test('拖拽取消、关闭开关和无效落点均保留布局并清除拖动状态', () => {
+  const previousDocument = globalThis.document;
+  try {
+    for (const ending of ['pointercancel', 'disable', 'outside']) {
+      const env = createPanelEnv('darwin');
+      globalThis.document = env.document;
+      const store = createPanelLayoutStore({ enabled: true, hidden: ['panel-1'], order: ['panel-0', 'panel-1'] });
+      const dispose = installRailDrag(store, { getSnapshot: () => fakePanels(2) });
+      env.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 20, clientY: 14, target: env.railButton });
+      env.dispatch('pointermove', { pointerId: 1, clientX: 30, clientY: 14 });
+      assert.equal(store.getSnapshot().dragActive, true);
+      assert.equal(store.getSnapshot().dragPanelId, 'panel-0');
+      if (ending === 'disable') store.setEnabled(false);
+      else env.dispatch(ending === 'outside' ? 'pointerup' : 'pointercancel', { pointerId: 1, clientX: 500, clientY: 500 });
+      assert.equal(store.getSnapshot().dragActive, false, ending);
+      assert.equal(store.getSnapshot().dragPanelId, null, ending);
+      assert.deepEqual(store.getSnapshot().order, ['panel-0', 'panel-1']);
+      assert.deepEqual(store.getSnapshot().hidden, ['panel-1']);
+      assert.equal(env.document.documentElement.hasAttribute('data-dfm-row-drag'), false);
+      dispose();
+    }
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test('更多悬浮菜单：跨入浮层保持打开，二级区展开立即关闭且禁止再次打开', () => {
+  const previousDocument = globalThis.document;
+  const previousSetTimeout = globalThis.setTimeout;
+  const previousClearTimeout = globalThis.clearTimeout;
+  const timers = new Map();
+  let nextTimer = 0;
+  const events = () => ({
+    listeners: new Map(),
+    addEventListener(name, fn) { this.listeners.set(name, fn); },
+    removeEventListener(name) { this.listeners.delete(name); },
+  });
+  const anchor = { ...events(), contains: (node) => node === anchor || node === button };
+  const menu = { contains: (node) => node === menu };
+  let expanded = false;
+  const button = {
+    ...events(),
+    getAttribute: () => String(expanded),
+    click() {
+      let stopped = false;
+      this.listeners.get('click')?.({ preventDefault() {}, stopImmediatePropagation() { stopped = true; } });
+      if (!stopped) expanded = !expanded;
+    },
+  };
+  const doc = {
+    ...events(),
+    querySelector: () => ({ closest: () => menu }),
+  };
+  const flushTimers = () => {
+    const pending = [...timers.values()];
+    timers.clear();
+    for (const fn of pending) fn();
+  };
+  try {
+    globalThis.document = doc;
+    globalThis.setTimeout = (fn) => { timers.set(++nextTimer, fn); return nextTimer; };
+    globalThis.clearTimeout = (id) => timers.delete(id);
+    const store = createPanelLayoutStore({ enabled: true });
+    const dispose = installSidebarMoreHover(button, anchor, store);
+    anchor.listeners.get('pointerenter')();
+    flushTimers();
+    assert.equal(expanded, true);
+    anchor.listeners.get('pointerleave')({ relatedTarget: menu });
+    flushTimers();
+    assert.equal(expanded, true, '跨过入口进入浮层时保留菜单');
+    store.setTrayOpen(true);
+    assert.equal(expanded, false, '展开二级区立即关闭浮层');
+    anchor.listeners.get('pointerenter')();
+    flushTimers();
+    button.click();
+    assert.equal(expanded, false, '展开时悬停和点击均不能重新打开浮层');
+    store.setTrayOpen(false);
+    anchor.listeners.get('pointerenter')();
+    flushTimers();
+    assert.equal(expanded, true);
+    store.setDragActive(true, 'panel-0');
+    assert.equal(expanded, false, '拖拽期间浮层让位');
+    dispose();
+    assert.equal(timers.size, 0);
+    assert.equal(doc.listeners.size + button.listeners.size + anchor.listeners.size, 0);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.setTimeout = previousSetTimeout;
+    globalThis.clearTimeout = previousClearTimeout;
+  }
+});
+
+test('折叠工具栏跨区拖放：隐藏、恢复、隐藏区内排序和空分区都按落点提交', () => {
+  const previousDocument = globalThis.document;
+  const cases = [
+    { hidden: ['panel-2', 'panel-3'], id: 'panel-0', x: 100, shown: ['panel-1'], folded: ['panel-0', 'panel-2', 'panel-3'] },
+    { hidden: ['panel-2', 'panel-3'], id: 'panel-3', x: 1, shown: ['panel-3', 'panel-0', 'panel-1'], folded: ['panel-2'] },
+    { hidden: ['panel-2', 'panel-3'], id: 'panel-3', x: 140, shown: ['panel-0', 'panel-1'], folded: ['panel-3', 'panel-2'] },
+    { hidden: [], id: 'panel-0', x: 100, shown: ['panel-1', 'panel-2', 'panel-3'], folded: ['panel-0'] },
+    { hidden: ['panel-0', 'panel-1', 'panel-2', 'panel-3'], id: 'panel-2', x: 10, shown: ['panel-2'], folded: ['panel-0', 'panel-1', 'panel-3'] },
+    { hidden: ['panel-2', 'panel-3'], id: 'panel-0', x: 250, shown: ['panel-0', 'panel-1'], folded: ['panel-2', 'panel-3'] },
+  ];
+  try {
+    for (const scenario of cases) {
+      const env = createPanelEnv('darwin');
+      globalThis.document = env.document;
+      const panels = fakePanels(4);
+      const store = createPanelLayoutStore({ enabled: true, hidden: scenario.hidden });
+      const nodes = new Map();
+      function zone(ids, left, right, firstIcon) {
+        const rows = ids.map((id, index) => {
+          const x = firstIcon + index * 30;
+          const button = {
+            classList: { add() {}, remove() {} },
+            getAttribute: (name) => name === 'data-panel-id' ? id : null,
+            closest: (selector) => selector === '[data-fold-minimal="rail"]' ? env.rail :
+              selector === '[data-fold-minimal="panel"][data-panel-id]' ? button : null,
+            getBoundingClientRect: () => ({ left: x, right: x + 28, top: 0, bottom: 28, width: 28, height: 28 }),
+          };
+          nodes.set(id, button);
+          return button;
+        });
+        return {
+          querySelectorAll: () => rows,
+          getBoundingClientRect: () => ({ left, right, top: 0, bottom: 28, width: right - left, height: 28 }),
+        };
+      }
+      const visible = zone(panels.filter((panel) => !scenario.hidden.includes(panel.id)).map((panel) => panel.id), 0, 70, 0);
+      const hidden = zone(scenario.hidden, 80, 220, 140);
+      env.rail.querySelector = (selector) => selector === '[data-dfm-rail-zone="visible"]' ? visible : hidden;
+      const dispose = installRailDrag(store, { getSnapshot: () => panels });
+      const button = nodes.get(scenario.id);
+      const start = button.getBoundingClientRect().left + 14;
+      env.dispatch('pointerdown', { button: 0, pointerId: 10, clientX: start, clientY: 14, target: button });
+      env.dispatch('pointermove', { pointerId: 10, clientX: start + 8, clientY: 14 });
+      env.dispatch('pointermove', { pointerId: 10, clientX: scenario.x, clientY: 14 });
+      assert.deepEqual(store.getSnapshot().hidden, scenario.hidden, '松手前不改变分组');
+      env.dispatch('pointerup', { pointerId: 10, clientX: scenario.x, clientY: 14 });
+      const state = store.getSnapshot();
+      const ordered = panelsInOrder(panels, state.order);
+      assert.deepEqual(ordered.filter((panel) => !state.hidden.includes(panel.id)).map((panel) => panel.id), scenario.shown);
+      assert.deepEqual(ordered.filter((panel) => state.hidden.includes(panel.id)).map((panel) => panel.id), scenario.folded);
+      dispose();
+    }
   } finally {
     globalThis.document = previousDocument;
   }

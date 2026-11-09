@@ -134,6 +134,8 @@ window.__ModuleLoader__.load({
 
     var zh = {
       'rail.label': '折叠态工具栏',
+      'rail.hide': '拖到这里隐藏',
+      'rail.restore': '拖到这里显示',
       'toggle.open': '打开侧边栏',
       'session.new.label': '新建会话',
       'session.back.label': '返回会话',
@@ -151,6 +153,8 @@ window.__ModuleLoader__.load({
 
     var en = {
       'rail.label': 'Collapsed toolbar',
+      'rail.hide': 'Drag here to hide',
+      'rail.restore': 'Drag here to show',
       'toggle.open': 'Open sidebar',
       'session.new.label': 'New session',
       'session.back.label': 'Back to session',
@@ -230,10 +234,12 @@ window.__ModuleLoader__.load({
       '.DFM_moreChevron[data-open="true"] svg{transform:rotate(90deg)}',
       // 「更多」下方的二级区：稍微右缩进，拖拽悬停时整块高亮。
       '.DFM_tray{box-sizing:border-box;display:flex;flex-direction:column;gap:2px;',
-      'margin:0 0 4px 14px;max-height:320px;overflow:auto}',
+      '--dfm-tray-border:color-mix(in srgb,var(--dsw-alias-label-tertiary,#9ca3af) 25%,white);',
+      'margin:0 0 4px 14px;padding:4px;border:1px dashed var(--dfm-tray-border);',
+      'border-radius:var(--dsw-radius-md);max-height:320px;overflow:auto}',
       '.DFM_tray:empty{display:none}',
-      '.DFM_tray[data-dfm-drop="true"]{outline:2px dashed var(--dsw-alias-brand-primary);outline-offset:2px;',
-      'border-radius:var(--dsw-radius-md);background:var(--dsw-alias-interactive-bg-hover)}',
+      '.DFM_tray[hidden]{display:none}',
+      '.DFM_tray[data-dfm-drop="true"]{background:var(--dsw-alias-interactive-bg-hover)}',
       '.DFM_trayRow{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;',
       'min-height:32px;margin:0;padding:4px 10px;border:none;border-radius:var(--dsw-radius-sm);',
       'background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;',
@@ -243,8 +249,7 @@ window.__ModuleLoader__.load({
       'var(--dsw-focus-ring-color,var(--dsw-alias-brand-primary));outline-offset:-2px}',
       '.DFM_trayRow[data-dfm-dragging="true"]{opacity:.5}',
       '.DFM_trayLabel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.DFM_trayEmpty{box-sizing:border-box;margin:0;padding:8px 10px;border:1px dashed ',
-      'var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);color:var(--dsw-alias-label-tertiary);',
+      '.DFM_trayEmpty{box-sizing:border-box;margin:0;padding:8px 10px;color:var(--dsw-alias-label-tertiary);',
       'font-size:12px;line-height:18px}',
       '.DFM_trayFooter{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:2px 2px 4px}',
       '.DFM_linkButton{border:none;background:transparent;color:var(--dsw-alias-brand-primary);',
@@ -272,18 +277,36 @@ window.__ModuleLoader__.load({
       'background:var(--dsw-alias-label-primary-foreground);transition:transform .12s ease}',
       '.DFM_switch[aria-checked="false"] .DFM_switchThumb{background:var(--dsw-alias-switch-thumb)}',
       '.DFM_switch[aria-checked="true"] .DFM_switchThumb{transform:translate(16px)}',
-      // 拖拽插入位置指示线：固定定位，横向列表画横线、图标行画竖线。
+      // 与宿主工作区的 dropBefore/dropAfter 共用绘制参数：12px 箭头 + 2px 线。
+      // 折叠工具栏把同一图形旋转 90°，只改变朝向，不改变箭头大小和线宽。
       '.DFM_indicator{position:fixed;z-index:99999;pointer-events:none;',
-      'background:var(--dsw-alias-brand-primary,var(--dsw-alias-state-business-primary));border-radius:999px;',
-      'box-shadow:0 0 0 1px var(--dsw-alias-brand-primary,var(--dsw-alias-state-business-primary))}',
-      // 拖到「更多」行上时整行高亮，提示松手会收进去。
+      'transform-origin:0 0;background:',
+      'linear-gradient(55deg,transparent calc(50% - 1px),var(--dsw-alias-state-business-primary) ',
+      'calc(50% - 1px) calc(50% + 1px),transparent calc(50% + 1px)) 0 0 / 5px 7px no-repeat,',
+      'linear-gradient(125deg,transparent calc(50% - 1px),var(--dsw-alias-state-business-primary) ',
+      'calc(50% - 1px) calc(50% + 1px),transparent calc(50% + 1px)) 0 5px / 5px 7px no-repeat,',
+      'linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat}',
+      '.DFM_indicator[data-axis="horizontal"]{transform:rotate(90deg)}',
+      // 拖动时把显示区与隐藏区分隔开，隐藏区用浅色说明提示用途。
+      '.DFM_railZone{display:flex;flex:none;align-items:center;gap:2px;min-width:28px;min-height:28px}',
+      '.DFM_railHidden{padding-right:8px}',
+      '.DFM_railZone + .DFM_divider{background:var(--dsw-alias-border-l3,var(--dsw-alias-label-tertiary,#9ca3af));opacity:.7}',
+      '.DFM_railHint{padding:0 6px;color:var(--dsw-alias-label-tertiary,#9ca3af);',
+      'font-size:11px;line-height:16px;white-space:nowrap}',
+      '.DFM_railHidden .DFM_button{color:var(--dsw-alias-label-tertiary,#9ca3af)}',
+      // 「更多」按钮只变底色；虚线边框只出现在下方二级区。
       '[' + MORE_ROW_ATTR + '][' + DROP_ATTR + '="true"]{background:var(--dsw-alias-interactive-bg-hover);',
-      'outline:2px dashed var(--dsw-alias-brand-primary,var(--dsw-alias-state-business-primary));',
-      'outline-offset:-2px;border-radius:var(--dsw-radius-md)}',
+      'border-radius:var(--dsw-radius-md)}',
       // 拖拽面板行时的全局指针/选区状态。
       'html[' + DRAG_ROOT_ATTR + ']{user-select:none}',
       'html[' + DRAG_ROOT_ATTR + '] *{cursor:grabbing !important}',
       '.DFM_rowDragging{opacity:.5}',
+      '.DFM_dragGhost{position:fixed;z-index:100000;pointer-events:none;display:flex;',
+      'align-items:center;justify-content:center;width:28px;height:28px;border-radius:var(--dsw-radius-sm);',
+      'background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay));color:var(--dsw-alias-label-primary);',
+      'box-shadow:var(--dsw-elevation-prominent,0 6px 16px rgba(0,0,0,.18))}',
+      '.DFM_dragGhost svg{width:16px;height:16px}',
+      'html[' + DRAG_ROOT_ATTR + '] .DFM_tip{display:none}',
     ].join('');
 
     /** 注入本插件样式；返回清理函数。 */
@@ -627,6 +650,7 @@ window.__ModuleLoader__.load({
         hidden: prefs.hidden,
         trayOpen: false,
         dragActive: false,
+        dragPanelId: null,
         preview: null,
       };
       var listeners = [];
@@ -642,6 +666,7 @@ window.__ModuleLoader__.load({
           hidden: snapshot.hidden,
           trayOpen: snapshot.trayOpen,
           dragActive: snapshot.dragActive,
+          dragPanelId: snapshot.dragPanelId,
           preview: snapshot.preview,
         };
         for (var key in changes) {
@@ -693,6 +718,10 @@ window.__ModuleLoader__.load({
         setHidden: function (hidden) {
           patch({ hidden: sanitizeLayoutPrefs({ hidden: hidden }).hidden }, true);
         },
+        setPlacement: function (order, hidden) {
+          var next = sanitizeLayoutPrefs({ order: order, hidden: hidden });
+          patch({ order: next.order, hidden: next.hidden }, true);
+        },
         setPreview: function (preview) {
           if (preview === null || preview === undefined) {
             if (snapshot.preview !== null) patch({ preview: null }, false);
@@ -715,9 +744,10 @@ window.__ModuleLoader__.load({
           patch({ trayOpen: open === true }, false);
         },
         /** 拖拽活跃标记（不持久化）：折叠工具栏据此临时把全部图标平铺。 */
-        setDragActive: function (active) {
-          if (snapshot.dragActive === (active === true)) return;
-          patch({ dragActive: active === true }, false);
+        setDragActive: function (active, id) {
+          var panelId = active === true && typeof id === 'string' ? id : null;
+          if (snapshot.dragActive === (active === true) && snapshot.dragPanelId === panelId) return;
+          patch({ dragActive: active === true, dragPanelId: panelId }, false);
         },
         hidePanel: function (id) {
           if (snapshot.hidden.indexOf(id) !== -1) return;
@@ -824,7 +854,8 @@ window.__ModuleLoader__.load({
         var previewIndex = snapshot.preview === null ? -1 : snapshot.preview.indexOf(id);
         React.useLayoutEffect(function () {
           var marker = markerRef.current;
-          var row = marker && typeof marker.closest === 'function' ? marker.closest('button') : null;
+          // 图标也会在二级区、悬浮菜单和工具栏复用；只能隐藏宿主 nav 的主列表行。
+          var row = hostPanelRow(marker);
           if (!row) return undefined;
           row.setAttribute('data-dfm-row-id', id);
           if (hidden) row.style.display = 'none';
@@ -1189,7 +1220,7 @@ window.__ModuleLoader__.load({
         'button',
         {
           type: 'button',
-          className: 'DFM_button' + (props.active ? ' DFM_active' : ''),
+          className: 'DFM_button' + (props.active ? ' DFM_active' : '') + (props.dragging ? ' DFM_rowDragging' : ''),
           'aria-label': props.label,
           'aria-current': props.active ? 'page' : undefined,
           'aria-keyshortcuts': shortcut && shortcut.aria ? shortcut.aria : undefined,
@@ -1254,6 +1285,7 @@ window.__ModuleLoader__.load({
           active: active,
           testId: 'panel',
           panelId: panel.id,
+          dragging: props.dragging,
           onPointerDown: props.onPointerDown,
           onClick: function () {
             openPanel(panel, props.selectPanel, props.trackEntryClick);
@@ -1279,6 +1311,8 @@ window.__ModuleLoader__.load({
           type: 'button',
           role: 'menuitem',
           className: 'DFM_menuItem' + (active ? ' DFM_active' : ''),
+          'data-dfm-rail-menu-id': props.railItem ? panel.id : undefined,
+          'data-dfm-tray-id': props.trayItem ? panel.id : undefined,
           'aria-current': active ? 'page' : undefined,
           onClick: function () {
             props.onSelect(panel);
@@ -1322,6 +1356,9 @@ window.__ModuleLoader__.load({
         cancel();
         setOpen(false);
       };
+      React.useLayoutEffect(function () {
+        if (props.dragActive) close();
+      }, [props.dragActive]);
       var active = props.usePanelInfo(function (info) {
         for (var index = 0; index < panels.length; index += 1) {
           if (panels[index].id === info.activePanelId) return true;
@@ -1335,6 +1372,7 @@ window.__ModuleLoader__.load({
         return h(PanelMenuItem, {
           key: 'overflow:' + panel.id,
           panel: panel,
+          railItem: true,
           usePanelInfo: props.usePanelInfo,
           onSelect: function (selected) {
             close();
@@ -1362,6 +1400,7 @@ window.__ModuleLoader__.load({
             h(PanelMenuItem, {
               key: 'hidden:' + hiddenPanels[hiddenIndex].id,
               panel: hiddenPanels[hiddenIndex],
+              railItem: true,
               usePanelInfo: props.usePanelInfo,
               onSelect: function (selected) {
                 close();
@@ -1376,6 +1415,7 @@ window.__ModuleLoader__.load({
         {
           className: 'DFM_more',
           onPointerEnter: function () {
+            if (props.dragActive) return;
             schedule(true, MENU_OPEN_DELAY);
           },
           onPointerLeave: function () {
@@ -1403,6 +1443,8 @@ window.__ModuleLoader__.load({
             hasPopup: 'menu',
             expanded: open,
             onClick: function () {
+              if (props.dragActive) return;
+              cancel();
               setOpen(function (value) {
                 return !value;
               });
@@ -1410,7 +1452,7 @@ window.__ModuleLoader__.load({
           },
           h(MorePanelsIcon, { size: ICON_SIZE }),
         ),
-        open
+        open && !props.dragActive
           ? h(
               'div',
               { className: 'DFM_menu', role: 'menu', 'aria-label': props.t('panels.more') },
@@ -1514,10 +1556,34 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** 原生「更多」浮层的前置分组，后面的宿主固定动作仍由宿主渲染。 */
+    function SidebarMoreItems(props) {
+      var layout = props.useLayout(function (snapshot) { return snapshot; });
+      var panels = props.usePanels(function (snapshot) { return snapshot; });
+      var hidden = splitPanels(panelsInOrder(panels, layout.order), layout.hidden).hidden;
+      var rows = [];
+      if (layout.enabled && !layout.trayOpen && !layout.dragActive) {
+        rows = hidden.map(function (panel) {
+          return h(PanelMenuItem, {
+            key: panel.id,
+            panel: panel,
+            trayItem: true,
+            usePanelInfo: props.usePanelInfo,
+            onSelect: function (selected) {
+              if (props.onDismiss) props.onDismiss();
+              openPanel(selected, props.selectPanel, props.trackEntryClick);
+            },
+          });
+        });
+        if (rows.length) rows.push(h('div', { key: 'divider', className: 'DFM_menuDivider', role: 'separator' }));
+      }
+      return h('div', { 'data-dfm-sidebar-menu': '', style: { display: 'contents' } }, rows);
+    }
+
     /**
      * 展开侧栏「更多」下方的缩进二级区：列出被收起的面板。
-     * 点行打开面板；Drag 出/入由 installPanelDrag 的事件委托处理。
-     * @param props - panels（已按当前顺序过滤的收起项）/ activePanelId / t / onOpen / onReset。
+     * 点行打开面板；拖出/入由 installPanelDrag 的事件委托处理。
+     * @param props - panels / activePanelId / t / onOpen / onReset。
      */
     function HiddenTray(props) {
       var rows = props.panels.map(function (panel) {
@@ -1672,6 +1738,7 @@ window.__ModuleLoader__.load({
         tray.setAttribute(TRAY_ATTR, '');
         tray.setAttribute('role', 'group');
         tray.setAttribute('aria-label', tRef.current('tray.label'));
+        var disposeHover = null;
 
         var ensure = function () {
           var toggleNode = document.querySelector('[data-sidebar-toggle]');
@@ -1691,12 +1758,15 @@ window.__ModuleLoader__.load({
           var moreRow = moreButton;
           while (moreRow && moreRow.parentElement !== nav) moreRow = moreRow.parentElement;
           if (!nav || !moreRow) {
+            if (disposeHover) disposeHover();
+            disposeHover = null;
             if (chevron.parentNode) chevron.parentNode.removeChild(chevron);
             if (tray.parentNode) tray.parentNode.removeChild(tray);
             moreRowRef.current = null;
             return;
           }
           if (moreRowRef.current !== moreRow) {
+            if (disposeHover) disposeHover();
             var previous = moreRowRef.current;
             if (previous) {
               previous.removeAttribute(MORE_ROW_ATTR);
@@ -1710,6 +1780,7 @@ window.__ModuleLoader__.load({
               moreRow.style.position = 'relative';
             }
             if (moreButton) moreButton.style.paddingRight = '28px';
+            disposeHover = installSidebarMoreHover(moreButton, moreRow, props.layoutStore);
           }
           if (chevron.parentNode !== moreRow) moreRow.appendChild(chevron);
           if (tray.parentNode !== nav || tray.previousElementSibling !== moreRow) {
@@ -1734,6 +1805,7 @@ window.__ModuleLoader__.load({
         setContainer(tray);
         return function () {
           if (observer) observer.disconnect();
+          if (disposeHover) disposeHover();
           if (chevron.parentNode) chevron.parentNode.removeChild(chevron);
           if (tray.parentNode) tray.parentNode.removeChild(tray);
           chevronRef.current = null;
@@ -1754,12 +1826,13 @@ window.__ModuleLoader__.load({
         var chevron = chevronRef.current;
         if (!chevron) return;
         var open = layout.trayOpen === true;
+        if (container) container.hidden = !open;
         chevron.setAttribute('data-open', open ? 'true' : 'false');
         chevron.setAttribute('aria-expanded', open ? 'true' : 'false');
         var label = tRef.current(open ? 'tray.collapse' : 'tray.expand');
         chevron.setAttribute('aria-label', label);
         chevron.setAttribute('title', label);
-      }, [layout.trayOpen, layout.enabled]);
+      }, [layout.trayOpen, layout.enabled, container]);
 
       // 4) 把二级区内容 portal 进宿主 nav 里我们创建的容器。
       if (!container || !layout.enabled || !wide || !ReactDOM || typeof ReactDOM.createPortal !== 'function') {
@@ -1963,6 +2036,116 @@ window.__ModuleLoader__.load({
       return null;
     }
 
+    /** 只匹配宿主 nav 的直接面板行，排除复用影子图标的所有自绘入口。 */
+    function hostPanelRow(marker) {
+      var row = marker && marker.closest ? marker.closest('button') : null;
+      var nav = row && row.closest ? row.closest('nav') : null;
+      return nav && row.parentElement === nav ? row : null;
+    }
+
+    /** 一次提交分组与落点，避免恢复面板时先闪回旧位置。 */
+    function placePanel(store, panels, id, index, intoTray) {
+      var snapshot = store.getSnapshot();
+      var all = panelIdsOf(panelsInOrder(panels, snapshot.order));
+      if (all.indexOf(id) === -1) return;
+      var hidden = snapshot.hidden.filter(function (panelId) { return panelId !== id; });
+      if (intoTray) hidden.push(id);
+      var bucket = all.filter(function (panelId) { return (hidden.indexOf(panelId) !== -1) === intoTray; });
+      var moved = moveVisibleOrder(bucket, id, index);
+      var order = intoTray ? replaceHiddenOrder(all, hidden, moved) : replaceVisibleOrder(all, hidden, moved);
+      store.setPlacement(order, hidden);
+    }
+
+    /** 用宿主按钮打开/关闭原生浮层；二级区展开或拖动时禁止浮层抢占操作。 */
+    function installSidebarMoreHover(button, anchor, store) {
+      if (!button || !store) return function () {};
+      var timer = null;
+      var toggling = false;
+      function cancel() {
+        if (timer !== null) clearTimeout(timer);
+        timer = null;
+      }
+      function blocked() {
+        var state = store.getSnapshot();
+        return !state.enabled || state.trayOpen || state.dragActive;
+      }
+      function toggle() {
+        toggling = true;
+        try { button.click(); } finally { toggling = false; }
+      }
+      function close() {
+        cancel();
+        if (button.getAttribute('aria-expanded') === 'true') toggle();
+      }
+      function popup() {
+        var marker = document.querySelector('[data-dfm-sidebar-menu]');
+        return marker && marker.closest('[role="menu"]');
+      }
+      function owns(node) {
+        var menu = popup();
+        return !!node && (anchor.contains(node) || !!menu && menu.contains(node));
+      }
+      function enter() {
+        cancel();
+        if (blocked()) return;
+        timer = setTimeout(function () {
+          timer = null;
+          if (!blocked() && button.getAttribute('aria-expanded') !== 'true') toggle();
+        }, MENU_OPEN_DELAY);
+      }
+      function leave(event) {
+        if (owns(event.relatedTarget)) return;
+        cancel();
+        timer = setTimeout(close, MENU_CLOSE_DELAY);
+      }
+      function over(event) {
+        var menu = popup();
+        if (menu && menu.contains(event.target)) cancel();
+      }
+      function out(event) {
+        var menu = popup();
+        if (menu && menu.contains(event.target)) leave(event);
+      }
+      function click(event) {
+        if (toggling || !blocked()) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+      var off = store.subscribe(function () { if (blocked()) close(); });
+      anchor.addEventListener('pointerenter', enter);
+      anchor.addEventListener('pointerleave', leave);
+      button.addEventListener('click', click, true);
+      document.addEventListener('pointerover', over);
+      document.addEventListener('pointerout', out);
+      return function () {
+        off();
+        close();
+        anchor.removeEventListener('pointerenter', enter);
+        anchor.removeEventListener('pointerleave', leave);
+        button.removeEventListener('click', click, true);
+        document.removeEventListener('pointerover', over);
+        document.removeEventListener('pointerout', out);
+      };
+    }
+
+    /** 指针替身在原行/浮层卸载后仍保留，直到松手或取消。 */
+    function createDragGhost(row) {
+      if (!document.body) return null;
+      var ghost = document.createElement('div');
+      ghost.className = 'DFM_dragGhost';
+      ghost.setAttribute('aria-hidden', 'true');
+      var glyph = row.querySelector('svg') || row.firstElementChild;
+      if (glyph) ghost.appendChild(glyph.cloneNode(true));
+      document.body.appendChild(ghost);
+      return {
+        move: function (x, y) {
+          ghost.style.left = x + 12 + 'px';
+          ghost.style.top = y + 12 + 'px';
+        },
+        dispose: function () { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); },
+      };
+    }
+
     /** 点是否落在 rect 内。 */
     function rectContains(rect, x, y) {
       return (
@@ -1978,18 +2161,20 @@ window.__ModuleLoader__.load({
     /** 吞掉拖拽结束后紧跟的一次 click（避免松手顺便打开面板）。 */
     function suppressNextClick() {
       if (typeof document === 'undefined') return;
+      var ownerDocument = document;
       var handler = function (event) {
         event.preventDefault();
         event.stopPropagation();
+        ownerDocument.removeEventListener('click', handler, true);
       };
-      document.addEventListener('click', handler, true);
+      ownerDocument.addEventListener('click', handler, true);
       setTimeout(function () {
-        document.removeEventListener('click', handler, true);
-      }, 400);
+        ownerDocument.removeEventListener('click', handler, true);
+      }, 0);
     }
 
     /**
-     * 蓝色插入位置指示线。固定定位在 body 上，拖拽过程中只更新位置、不参与布局，
+     * 原生箭头与蓝线组成的插入提示。固定定位在 body 上，不参与布局，
      * 所以宿主行与工具栏图标都不会在拖动中跳动。
      * @returns `{ showVertical, showHorizontal, hide, dispose }`；没有 body 时返回 null。
      */
@@ -2010,10 +2195,11 @@ window.__ModuleLoader__.load({
       };
       return {
         showVertical: function (left, width, y) {
-          show('vertical', left, y - 1, width, 2);
+          show('vertical', left, y - 6, width, 12);
         },
         showHorizontal: function (x, top, height) {
-          show('horizontal', x - 1, top, 2, height);
+          // 以左上角旋转后，原图形 y=6 的蓝线仍精确落在插入点 x 上。
+          show('horizontal', x + 6, top, height, 12);
         },
         hide: function () {
           line.style.display = 'none';
@@ -2043,10 +2229,6 @@ window.__ModuleLoader__.load({
         return !!root && root.getAttribute('data-platform') === 'darwin';
       }
 
-      function panelIds() {
-        return panelIdsOf(panelsSource.getSnapshot());
-      }
-
       function hiddenIds() {
         return store.getSnapshot().hidden;
       }
@@ -2066,7 +2248,7 @@ window.__ModuleLoader__.load({
           var marker = nodes[index];
           var id = marker.getAttribute(MARKER_ATTR);
           if (!id || hidden[id]) continue;
-          var row = typeof marker.closest === 'function' ? marker.closest('button') : null;
+          var row = hostPanelRow(marker);
           if (!row) continue;
           var rect = row.getBoundingClientRect();
           if (rect.height <= 0 || rect.width <= 0) continue;
@@ -2136,7 +2318,10 @@ window.__ModuleLoader__.load({
       /** 主区插入点：index 是「去掉被拖行后」序列里的落点，lineY 是蓝线位置。 */
       function mainTargetAt(y, draggedId) {
         var markers = mainMarkers();
-        if (!markers.length) return null;
+        if (!markers.length) {
+          var moreRect = rectOf(moreRowElement());
+          return moreRect ? { index: 0, lineY: moreRect.top - 2, left: moreRect.left, width: moreRect.width } : null;
+        }
         var without = [];
         for (var index = 0; index < markers.length; index += 1) {
           if (markers[index].id !== draggedId) without.push(markers[index]);
@@ -2194,59 +2379,24 @@ window.__ModuleLoader__.load({
       }
 
       /** 指针是否落在面板列表的主区（含行间空隙；全收起时以「更多」为下界）。 */
-      function overMainZone(y) {
+      function overMainZone(x, y) {
         var markers = mainMarkers();
         if (markers.length > 0) {
           return (
+            x >= markers[0].rect.left && x < markers[0].rect.right &&
             y >= markers[0].rect.top - 18 && y <= markers[markers.length - 1].rect.bottom + 18
           );
         }
         var more = moreRowElement();
         var moreRect = rectOf(more);
-        return !!moreRect && y < moreRect.top;
-      }
-
-      function commitMainReorder(id, index) {
-        var all = panelIds();
-        var hidden = hiddenIds();
-        var hiddenSet = hiddenSetOf(hidden);
-        var visible = all.filter(function (panelId) {
-          return !hiddenSet[panelId];
-        });
-        var nextVisible = moveVisibleOrder(visible, id, index);
-        store.setOrder(replaceVisibleOrder(all, hidden, nextVisible));
-      }
-
-      function commitTrayReorder(id, index) {
-        var all = panelIds();
-        var hidden = hiddenIds();
-        var hiddenSet = hiddenSetOf(hidden);
-        var hiddenOrder = all.filter(function (panelId) {
-          return hiddenSet[panelId];
-        });
-        var nextHidden = moveVisibleOrder(hiddenOrder, id, index);
-        store.setOrder(replaceHiddenOrder(all, hidden, nextHidden));
-      }
-
-      function restoreFromTray(id, index) {
-        var snapshot = store.getSnapshot();
-        var all = panelIds();
-        var beforeHidden = hiddenSetOf(snapshot.hidden);
-        var visible = all.filter(function (panelId) {
-          return !beforeHidden[panelId];
-        });
-        var nextVisible = moveVisibleOrder(visible, id, index);
-        var nextHidden = snapshot.hidden.filter(function (panelId) {
-          return panelId !== id;
-        });
-        store.setHidden(nextHidden);
-        store.setOrder(replaceVisibleOrder(all, nextHidden, nextVisible));
+        return !!moreRect && x >= moreRect.left && x < moreRect.right && y >= moreRect.top - 36 && y < moreRect.top;
       }
 
       function resetSession() {
         document.removeEventListener('pointermove', onPointerMove, true);
         document.removeEventListener('pointerup', onPointerUp, true);
         document.removeEventListener('pointercancel', onPointerCancel, true);
+        document.removeEventListener('keydown', onKeyDown, true);
         clearHighlights();
         if (typeof document !== 'undefined') {
           document.documentElement.removeAttribute(DRAG_ROOT_ATTR);
@@ -2254,8 +2404,9 @@ window.__ModuleLoader__.load({
         if (session && session.row && session.row.classList) {
           session.row.classList.remove('DFM_rowDragging');
         }
-        store.setDragActive(false);
+        if (session && session.ghost) session.ghost.dispose();
         session = null;
+        store.setDragActive(false);
       }
 
       function updateDrag(x, y) {
@@ -2275,7 +2426,7 @@ window.__ModuleLoader__.load({
             }
             return;
           }
-          if (overMainZone(y)) {
+          if (overMainZone(x, y)) {
             var restoreTarget = mainTargetAt(y, session.id);
             if (restoreTarget && indicator) {
               indicator.showVertical(restoreTarget.left, restoreTarget.width, restoreTarget.lineY);
@@ -2287,19 +2438,22 @@ window.__ModuleLoader__.load({
         // 拖到「更多」行或已展开的二级区上：提示松手会收起。
         if (overTray) {
           setTrayHighlight(true);
+          var insertTarget = trayTargetAt(y, session.id);
+          if (insertTarget && indicator) indicator.showVertical(insertTarget.left, insertTarget.width, insertTarget.lineY);
           return;
         }
         if (overMore) {
           setMoreHighlight(true);
+          setTrayHighlight(true);
           if (!snapshot.trayOpen) store.setTrayOpen(true);
           return;
         }
         // 靠近「更多」时自动展开二级区；这里只在指针仍在主区内时画插入线。
-        if (!snapshot.trayOpen && overMainZone(y)) {
+        if (!snapshot.trayOpen && overMainZone(x, y)) {
           var moreRect = rectOf(more);
           if (moreRect && y > moreRect.top - 44) store.setTrayOpen(true);
         }
-        if (overMainZone(y)) {
+        if (overMainZone(x, y)) {
           var target = mainTargetAt(y, session.id);
           if (target && indicator) {
             indicator.showVertical(target.left, target.width, target.lineY);
@@ -2314,13 +2468,15 @@ window.__ModuleLoader__.load({
           var dy = event.clientY - session.startY;
           if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
           session.active = true;
-          store.setDragActive(true);
+          session.ghost = createDragGhost(session.row);
+          store.setDragActive(true, session.id);
           document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
           if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
           if (event.cancelable) event.preventDefault();
         } else if (event.cancelable) {
           event.preventDefault();
         }
+        if (session.ghost) session.ghost.move(event.clientX, event.clientY);
         updateDrag(event.clientX, event.clientY);
       }
 
@@ -2338,28 +2494,37 @@ window.__ModuleLoader__.load({
         if (drag.fromTray) {
           if (overTray) {
             var trayTarget = trayTargetAt(y, drag.id);
-            if (trayTarget) commitTrayReorder(drag.id, trayTarget.index);
-          } else if (overMainZone(y)) {
+            if (trayTarget) placePanel(store, panelsSource.getSnapshot(), drag.id, trayTarget.index, true);
+          } else if (overMainZone(x, y)) {
             var restoreTarget = mainTargetAt(y, drag.id);
             // 全部面板都收起时主区没有行可参考，恢复到可见列表第 0 位。
-            restoreFromTray(drag.id, restoreTarget ? restoreTarget.index : 0);
+            placePanel(store, panelsSource.getSnapshot(), drag.id, restoreTarget ? restoreTarget.index : 0, false);
           }
           return;
         }
         if (overTray || overMore) {
-          store.hidePanel(drag.id);
+          var insert = trayTargetAt(y, drag.id);
+          var hiddenCount = splitPanels(panelsSource.getSnapshot(), hiddenIds()).hidden.length;
+          placePanel(store, panelsSource.getSnapshot(), drag.id, insert ? insert.index : hiddenCount, true);
           // 保证松手后二级区展开，用户马上能看到拖进去的项。
           store.setTrayOpen(true);
           return;
         }
-        if (overMainZone(y)) {
+        if (overMainZone(x, y)) {
           var target = mainTargetAt(y, drag.id);
-          if (target) commitMainReorder(drag.id, target.index);
+          if (target) placePanel(store, panelsSource.getSnapshot(), drag.id, target.index, false);
         }
       }
 
       function onPointerCancel(event) {
         if (!session || event.pointerId !== session.pointerId) return;
+        resetSession();
+      }
+
+      function onKeyDown(event) {
+        if (event.key !== 'Escape' || !session) return;
+        event.preventDefault();
+        if (session.active) suppressNextClick();
         resetSession();
       }
 
@@ -2377,7 +2542,7 @@ window.__ModuleLoader__.load({
         var hostRow = trayRow || marker ? null : target.closest('[data-dfm-row-id]');
         if (!trayRow && !marker && !hostRow) return;
         var row = trayRow || (marker ? marker.closest('button') : hostRow);
-        if (!row) return;
+        if (!row || (!trayRow && row !== hostPanelRow(marker || row))) return;
         var id = trayRow
           ? row.getAttribute(TRAY_ID_ATTR)
           : marker
@@ -2396,10 +2561,18 @@ window.__ModuleLoader__.load({
         document.addEventListener('pointermove', onPointerMove, true);
         document.addEventListener('pointerup', onPointerUp, true);
         document.addEventListener('pointercancel', onPointerCancel, true);
+        document.addEventListener('keydown', onKeyDown, true);
       }
 
+      var offStore = store.subscribe(function () {
+        if (session && !store.getSnapshot().enabled) resetSession();
+      });
+      var onBlur = function () { if (session) resetSession(); };
+      if (typeof window.addEventListener === 'function') window.addEventListener('blur', onBlur);
       document.addEventListener('pointerdown', onPointerDown, true);
       return function () {
+        offStore();
+        if (typeof window.removeEventListener === 'function') window.removeEventListener('blur', onBlur);
         resetSession();
         if (indicator) indicator.dispose();
         document.removeEventListener('pointerdown', onPointerDown, true);
@@ -2419,6 +2592,7 @@ window.__ModuleLoader__.load({
       if (typeof document === 'undefined') return undefined;
       var session = null;
       var indicator = createInsertionIndicator();
+      var frame = null;
 
       function platformOk() {
         var root = document.documentElement;
@@ -2429,10 +2603,8 @@ window.__ModuleLoader__.load({
         return document.querySelector('[data-fold-minimal="rail"]');
       }
 
-      function railButtons() {
-        var rail = railElement();
-        if (!rail) return [];
-        var nodes = rail.querySelectorAll('[data-fold-minimal="panel"][data-panel-id]');
+      function railButtons(zone) {
+        var nodes = zone.querySelectorAll('[data-fold-minimal="panel"][data-panel-id]');
         var result = [];
         for (var index = 0; index < nodes.length; index += 1) {
           var rect = nodes[index].getBoundingClientRect();
@@ -2445,9 +2617,12 @@ window.__ModuleLoader__.load({
         return result;
       }
 
-      function targetAt(x, draggedId) {
-        var buttons = railButtons();
-        if (!buttons.length) return null;
+      function targetAt(x, draggedId, zone) {
+        var buttons = railButtons(zone);
+        var zoneRect = zone.getBoundingClientRect();
+        if (!buttons.length) return {
+          index: 0, lineX: zoneRect.right - 4, top: zoneRect.top - 2, height: zoneRect.height + 4,
+        };
         var without = [];
         for (var index = 0; index < buttons.length; index += 1) {
           if (buttons[index].id !== draggedId) without.push(buttons[index]);
@@ -2479,53 +2654,67 @@ window.__ModuleLoader__.load({
         document.removeEventListener('pointermove', onPointerMove, true);
         document.removeEventListener('pointerup', onPointerUp, true);
         document.removeEventListener('pointercancel', onPointerCancel, true);
+        document.removeEventListener('keydown', onKeyDown, true);
+        if (frame !== null) cancelAnimationFrame(frame);
+        frame = null;
         if (indicator) indicator.hide();
         document.documentElement.removeAttribute(DRAG_ROOT_ATTR);
         if (session && session.row && session.row.classList) {
           session.row.classList.remove('DFM_rowDragging');
         }
-        store.setDragActive(false);
+        if (session && session.ghost) session.ghost.dispose();
         session = null;
+        store.setDragActive(false);
       }
 
-      function commitReorder(id, index) {
-        var all = panelIdsOf(panelsSource.getSnapshot());
-        var hidden = store.getSnapshot().hidden;
-        var hiddenSet = {};
-        for (var hiddenIndex = 0; hiddenIndex < hidden.length; hiddenIndex += 1) {
-          hiddenSet[hidden[hiddenIndex]] = true;
-        }
-        var visible = all.filter(function (panelId) {
-          return !hiddenSet[panelId];
-        });
-        store.setOrder(replaceVisibleOrder(all, hidden, moveVisibleOrder(visible, id, index)));
+      function updateDrag() {
+        if (!session || !session.active) return;
+        var target = dropTargetAt(session.x, session.y, session.id);
+        if (target && indicator) {
+          indicator.showHorizontal(target.lineX, target.top, target.height);
+        } else if (indicator) indicator.hide();
       }
 
       function onPointerMove(event) {
         if (!session || event.pointerId !== session.pointerId) return;
+        session.x = event.clientX;
+        session.y = event.clientY;
         if (!session.active) {
           var dx = event.clientX - session.startX;
           var dy = event.clientY - session.startY;
           if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
           session.active = true;
-          store.setDragActive(true);
+          session.ghost = createDragGhost(session.row);
+          store.setDragActive(true, session.id);
           document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
           if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
           if (event.cancelable) event.preventDefault();
         } else if (event.cancelable) {
           event.preventDefault();
         }
-        var target = targetAt(event.clientX, session.id);
-        if (target && indicator) {
-          indicator.showHorizontal(target.lineX, target.top, target.height);
+        if (session.ghost) session.ghost.move(event.clientX, event.clientY);
+        updateDrag();
+        // 平铺由 React 提交后，再按新位置量一次，菜单源行此时可以安全卸载。
+        if (frame === null && typeof requestAnimationFrame === 'function') {
+          frame = requestAnimationFrame(function () { frame = null; updateDrag(); });
         }
       }
 
-      function insideRail(x, y) {
+      function dropTargetAt(x, y, id) {
         var rail = railElement();
-        if (!rail) return false;
-        var rect = rail.getBoundingClientRect();
-        return x >= rect.left - 24 && x <= rect.right + 24 && y >= rect.top - 16 && y <= rect.bottom + 16;
+        if (!rail || typeof rail.querySelector !== 'function') return null;
+        var visible = rail.querySelector('[data-dfm-rail-zone="visible"]');
+        var hidden = rail.querySelector('[data-dfm-rail-zone="hidden"]');
+        // 平铺提交前不使用旧菜单的位置，避免显示错误落点。
+        if (!visible || !hidden) return null;
+        var visibleRect = visible.getBoundingClientRect();
+        var hiddenRect = hidden.getBoundingClientRect();
+        if (y < visibleRect.top - 12 || y > visibleRect.bottom + 12 ||
+            x < visibleRect.left - 6 || x > hiddenRect.right + 6) return null;
+        var intoTray = x >= hiddenRect.left;
+        var target = targetAt(x, id, intoTray ? hidden : visible);
+        target.intoTray = intoTray;
+        return target;
       }
 
       function onPointerUp(event) {
@@ -2534,12 +2723,11 @@ window.__ModuleLoader__.load({
         var x = event.clientX;
         var y = event.clientY;
         var active = drag.active;
-        var target = active ? targetAt(x, drag.id) : null;
-        var inside = insideRail(x, y);
+        var target = active ? dropTargetAt(x, y, drag.id) : null;
         resetSession();
         if (!active) return;
         suppressNextClick();
-        if (target && inside) commitReorder(drag.id, target.index);
+        if (target) placePanel(store, panelsSource.getSnapshot(), drag.id, target.index, target.intoTray);
       }
 
       function onPointerCancel(event) {
@@ -2547,17 +2735,25 @@ window.__ModuleLoader__.load({
         resetSession();
       }
 
+      function onKeyDown(event) {
+        if (event.key !== 'Escape' || !session) return;
+        event.preventDefault();
+        if (session.active) suppressNextClick();
+        resetSession();
+      }
+
       function onPointerDown(event) {
         if (event.button !== 0 || session) return;
         if (!store.getSnapshot().enabled) return;
-        if (!platformOk()) return;
+        if (!platformOk() || document.documentElement.hasAttribute(DRAG_ROOT_ATTR)) return;
         var target = event.target;
         if (!target || typeof target.closest !== 'function') return;
-        var button = target.closest('[data-fold-minimal="panel"][data-panel-id]');
+        var button = target.closest('[data-fold-minimal="panel"][data-panel-id]') ||
+          target.closest('[data-dfm-rail-menu-id]');
         if (!button) return;
         var rail = button.closest('[data-fold-minimal="rail"]');
         if (!rail) return;
-        var id = button.getAttribute('data-panel-id');
+        var id = button.getAttribute('data-panel-id') || button.getAttribute('data-dfm-rail-menu-id');
         if (!id) return;
         session = {
           pointerId: event.pointerId,
@@ -2570,10 +2766,19 @@ window.__ModuleLoader__.load({
         document.addEventListener('pointermove', onPointerMove, true);
         document.addEventListener('pointerup', onPointerUp, true);
         document.addEventListener('pointercancel', onPointerCancel, true);
+        document.addEventListener('keydown', onKeyDown, true);
       }
 
+      var offStore = store.subscribe(function () {
+        var state = store.getSnapshot();
+        if (session && (!state.enabled || state.toolbarEnabled === false)) resetSession();
+      });
+      var onBlur = function () { if (session) resetSession(); };
+      if (typeof window.addEventListener === 'function') window.addEventListener('blur', onBlur);
       document.addEventListener('pointerdown', onPointerDown, true);
       return function () {
+        offStore();
+        if (typeof window.removeEventListener === 'function') window.removeEventListener('blur', onBlur);
         resetSession();
         if (indicator) indicator.dispose();
         document.removeEventListener('pointerdown', onPointerDown, true);
@@ -2624,22 +2829,22 @@ window.__ModuleLoader__.load({
           : null;
       var effectivePanels = enabled && orderSource ? panelsInOrder(panels, orderSource) : panels;
       var split = splitPanels(effectivePanels, hiddenIds);
-      // 拖拽期间把（未收起的）所有面板临时一行平铺，方便拖到任意位置；
-      // 松手后回到正常的 4 格 + 更多规则。
+      // 拖动时全部平铺，收起项保留在独立隐藏区，跨区松手才修改显隐。
       var flattenRail = enabled && layoutState.dragActive === true;
-      var visiblePanels = split.visible;
-      var overflowPanels = split.overflow;
-      if (flattenRail) {
-        var hiddenSet = {};
-        for (var hiddenIndex = 0; hiddenIndex < hiddenIds.length; hiddenIndex += 1) {
-          hiddenSet[hiddenIds[hiddenIndex]] = true;
-        }
-        visiblePanels = effectivePanels.filter(function (panel) {
-          return !hiddenSet[panel.id];
+      var visiblePanels = flattenRail
+        ? effectivePanels.filter(function (panel) { return hiddenIds.indexOf(panel.id) === -1; })
+        : split.visible;
+      var needsMore = !flattenRail && (split.overflow.length > 0 || split.hidden.length > 0);
+      var panelButton = function (panel) {
+        return h(PanelButton, {
+          key: 'panel:' + panel.id,
+          panel: panel,
+          dragging: flattenRail && panel.id === layoutState.dragPanelId,
+          selectPanel: props.selectPanel,
+          trackEntryClick: props.trackEntryClick,
+          usePanelInfo: usePanelInfo,
         });
-        overflowPanels = [];
-      }
-      var needsMore = overflowPanels.length > 0 || split.hidden.length > 0;
+      };
 
       var children = [
         h(
@@ -2657,23 +2862,27 @@ window.__ModuleLoader__.load({
 
       if (effectivePanels.length > 0) {
         children.push(h(Divider, { key: 'rail:divider-panels' }));
-        for (var index = 0; index < visiblePanels.length; index += 1) {
-          children.push(
-            h(PanelButton, {
-              key: 'panel:' + visiblePanels[index].id,
-              panel: visiblePanels[index],
-              selectPanel: props.selectPanel,
-              trackEntryClick: props.trackEntryClick,
-              usePanelInfo: usePanelInfo,
-            }),
-          );
+        if (flattenRail) {
+          children.push(h('div', {
+            key: 'rail:visible-zone', className: 'DFM_railZone',
+            'data-dfm-rail-zone': 'visible', role: 'group', 'aria-label': t('rail.restore'),
+          }, visiblePanels.length ? visiblePanels.map(panelButton) :
+            h('span', { className: 'DFM_railHint' }, t('rail.restore'))));
+          children.push(h(Divider, { key: 'rail:divider-hidden' }));
+          children.push(h('div', {
+            key: 'rail:hidden-zone', className: 'DFM_railZone DFM_railHidden',
+            'data-dfm-rail-zone': 'hidden', role: 'group', 'aria-label': t('rail.hide'),
+          }, h('span', { className: 'DFM_railHint' }, t('rail.hide')), split.hidden.map(panelButton)));
+        } else {
+          for (var index = 0; index < visiblePanels.length; index += 1) children.push(panelButton(visiblePanels[index]));
         }
         if (needsMore) {
           children.push(
             h(PanelOverflowMenu, {
               key: 'rail:more-panels',
-              panels: overflowPanels,
+              panels: split.overflow,
               hiddenPanels: split.hidden,
+              dragActive: flattenRail,
               t: t,
               usePanelInfo: usePanelInfo,
               onSelect: function (panel) {
@@ -2913,6 +3122,7 @@ window.__ModuleLoader__.load({
                 trackEntryClick: actions.trackEntryClick,
                 toggleTray: layoutActions.toggleTray,
                 resetLayout: layoutActions.resetLayout,
+                layoutStore: layout,
                 hooks: {
                   layout: layout.observable,
                   panels: panels.source,
@@ -2944,7 +3154,7 @@ window.__ModuleLoader__.load({
       });
 
       // 「更多」按钮只在 panellist.actions 有注册时出现。新部件运行时注册一个
-      // 空行，保证二级区的锚点存在；关闭开关就撤销，不改变关闭时的 UI。
+      // 前置分组，既保证二级区锚点存在，也把收起项列在宿主固定动作之前。
       ctx.effect(function () {
         return ctx.slots.inject('sidebar.panellist.actions', function () {
           var dispose = null;
@@ -2955,11 +3165,17 @@ window.__ModuleLoader__.load({
                 {
                   name: 'sidebar.panellist.actions',
                   id: 'fold-minimal.more-anchor',
+                  order: -1000000,
                   locale: NS,
+                  inject: function () {
+                    return {
+                      selectPanel: actions.selectPanel,
+                      trackEntryClick: actions.trackEntryClick,
+                      hooks: { layout: layout.observable, panels: panels.source },
+                    };
+                  },
                 },
-                function () {
-                  return null;
-                },
+                SidebarMoreItems,
               );
             } else if (!enabled && dispose) {
               dispose();
@@ -3003,10 +3219,13 @@ window.__ModuleLoader__.load({
         panelIdsOf: panelIdsOf,
         sanitizeLayoutPrefs: sanitizeLayoutPrefs,
         createPanelLayoutStore: createPanelLayoutStore,
+        createShadowPanel: createShadowPanel,
+        placePanel: placePanel,
         dragOvershoot: dragOvershoot,
         installDragCollapse: installDragCollapse,
         installPanelDrag: installPanelDrag,
         installRailDrag: installRailDrag,
+        installSidebarMoreHover: installSidebarMoreHover,
         isPanelActive: isPanelActive,
       },
     };
