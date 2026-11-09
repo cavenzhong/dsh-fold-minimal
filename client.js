@@ -398,7 +398,7 @@ window.__ModuleLoader__.load({
           hidden: [],
         };
       }
-      var hiddenSet = {};
+      var hiddenSet = Object.create(null);
       for (var index = 0; index < hidden.length; index += 1) hiddenSet[hidden[index]] = true;
       var flat = [];
       var folded = [];
@@ -424,9 +424,9 @@ window.__ModuleLoader__.load({
      * @returns 完整顺序数组。
      */
     function mergePanelOrder(savedOrder, ids, fallbackIds) {
-      var known = {};
+      var known = Object.create(null);
       for (var index = 0; index < ids.length; index += 1) known[ids[index]] = true;
-      var seen = {};
+      var seen = Object.create(null);
       var result = [];
       var append = function (id) {
         if (!known[id] || seen[id]) return;
@@ -469,7 +469,7 @@ window.__ModuleLoader__.load({
      * @returns 新完整顺序；长度对不上时原样返回 `allOrder`（保护异常输入）。
      */
     function replaceVisibleOrder(allOrder, hiddenIds, visibleIds) {
-      var hiddenSet = {};
+      var hiddenSet = Object.create(null);
       for (var index = 0; index < hiddenIds.length; index += 1) hiddenSet[hiddenIds[index]] = true;
       var next = [];
       var cursor = 0;
@@ -490,7 +490,7 @@ window.__ModuleLoader__.load({
      * @returns 新完整顺序；长度对不上时原样返回 `allOrder`。
      */
     function replaceHiddenOrder(allOrder, hiddenIds, hiddenOrder) {
-      var hiddenSet = {};
+      var hiddenSet = Object.create(null);
       for (var index = 0; index < hiddenIds.length; index += 1) hiddenSet[hiddenIds[index]] = true;
       var next = [];
       var cursor = 0;
@@ -518,9 +518,9 @@ window.__ModuleLoader__.load({
      */
     function panelsInOrder(panels, order) {
       if (!Array.isArray(order)) return panels;
-      var byId = {};
+      var byId = Object.create(null);
       for (var index = 0; index < panels.length; index += 1) byId[panels[index].id] = panels[index];
-      var seen = {};
+      var seen = Object.create(null);
       var result = [];
       for (var orderIndex = 0; orderIndex < order.length; orderIndex += 1) {
         var panel = byId[order[orderIndex]];
@@ -562,9 +562,18 @@ window.__ModuleLoader__.load({
 
     /** 从 cookie 读取排序状态；没有 document 或解析失败时返回 null。 */
     function readLayoutCookie() {
-      if (typeof document === 'undefined' || typeof document.cookie !== 'string') return null;
+      if (typeof document === 'undefined') return null;
+      try {
+        return parseLayoutCookie(document.cookie);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function parseLayoutCookie(cookie) {
+      if (typeof cookie !== 'string') return null;
       var prefix = LAYOUT_COOKIE + '=';
-      var parts = document.cookie.split(';');
+      var parts = cookie.split(';');
       for (var index = 0; index < parts.length; index += 1) {
         var part = parts[index].replace(/^\s+/, '');
         if (part.indexOf(prefix) !== 0) continue;
@@ -579,7 +588,7 @@ window.__ModuleLoader__.load({
 
     /** 写入 cookie；失败（隐私模式/超长）不影响功能。 */
     function writeLayoutCookie(prefs) {
-      if (typeof document === 'undefined' || typeof document.cookie !== 'string') return;
+      if (typeof document === 'undefined') return;
       try {
         var value = encodeURIComponent(JSON.stringify(prefs));
         document.cookie =
@@ -596,9 +605,9 @@ window.__ModuleLoader__.load({
 
     /** 读取 localStorage 镜像；异常时返回 null。 */
     function readLayoutStorage() {
-      if (typeof window === 'undefined' || !window.localStorage) return null;
+      if (typeof window === 'undefined') return null;
       try {
-        var raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+        var raw = window.localStorage && window.localStorage.getItem(LAYOUT_STORAGE_KEY);
         return raw ? JSON.parse(raw) : null;
       } catch (error) {
         return null;
@@ -607,9 +616,9 @@ window.__ModuleLoader__.load({
 
     /** 写回 localStorage 镜像；异常时忽略。 */
     function writeLayoutStorage(prefs) {
-      if (typeof window === 'undefined' || !window.localStorage) return;
+      if (typeof window === 'undefined') return;
       try {
-        window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(prefs));
+        if (window.localStorage) window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(prefs));
       } catch (error) {
         // 忽略：cookie 仍是跨重启的主存储。
       }
@@ -637,7 +646,7 @@ window.__ModuleLoader__.load({
      *
      * 快照字段：`enabled`（设置开关）、`order`（保存的 id 顺序）、
      * `hidden`（收起的 id）、`trayOpen`（二级区展开，不持久化）、
-     * `preview`（拖拽中的临时顺序，不持久化）。
+     * `dragActive` / `dragPanelId`（拖拽中的临时状态，不持久化）。
      * @param initial - `readLayoutPrefs()` 的结果。
      * @returns store：`subscribe/getSnapshot` + 动作。
      */
@@ -651,7 +660,6 @@ window.__ModuleLoader__.load({
         trayOpen: false,
         dragActive: false,
         dragPanelId: null,
-        preview: null,
       };
       var listeners = [];
       var notify = function () {
@@ -659,19 +667,19 @@ window.__ModuleLoader__.load({
         for (var index = 0; index < current.length; index += 1) current[index]();
       };
       var patch = function (changes, persist) {
-        var next = {
-          enabled: snapshot.enabled,
-          toolbarEnabled: snapshot.toolbarEnabled,
-          order: snapshot.order,
-          hidden: snapshot.hidden,
-          trayOpen: snapshot.trayOpen,
-          dragActive: snapshot.dragActive,
-          dragPanelId: snapshot.dragPanelId,
-          preview: snapshot.preview,
-        };
+        var next = null;
         for (var key in changes) {
-          if (Object.prototype.hasOwnProperty.call(changes, key)) next[key] = changes[key];
+          if (!Object.prototype.hasOwnProperty.call(changes, key)) continue;
+          var value = changes[key];
+          var previous = snapshot[key];
+          if (value === previous || (Array.isArray(value) && Array.isArray(previous) &&
+              value.length === previous.length && value.every(function (item, index) {
+                return item === previous[index];
+              }))) continue;
+          if (next === null) next = Object.assign({}, snapshot);
+          next[key] = value;
         }
+        if (next === null) return;
         snapshot = next;
         if (persist) {
           writeLayoutPrefs({
@@ -707,10 +715,10 @@ window.__ModuleLoader__.load({
           },
         },
         setEnabled: function (enabled) {
-          patch({ enabled: enabled === true, preview: null, trayOpen: enabled === true ? snapshot.trayOpen : false }, true);
+          patch({ enabled: enabled === true, trayOpen: enabled === true ? snapshot.trayOpen : false }, true);
         },
         setToolbarEnabled: function (enabled) {
-          patch({ toolbarEnabled: enabled === true, preview: null }, true);
+          patch({ toolbarEnabled: enabled === true }, true);
         },
         setOrder: function (order) {
           patch({ order: sanitizeLayoutPrefs({ order: order }).order }, true);
@@ -721,24 +729,6 @@ window.__ModuleLoader__.load({
         setPlacement: function (order, hidden) {
           var next = sanitizeLayoutPrefs({ order: order, hidden: hidden });
           patch({ order: next.order, hidden: next.hidden }, true);
-        },
-        setPreview: function (preview) {
-          if (preview === null || preview === undefined) {
-            if (snapshot.preview !== null) patch({ preview: null }, false);
-            return;
-          }
-          var current = snapshot.preview;
-          if (current !== null && current.length === preview.length) {
-            var same = true;
-            for (var index = 0; index < preview.length; index += 1) {
-              if (current[index] !== preview[index]) {
-                same = false;
-                break;
-              }
-            }
-            if (same) return;
-          }
-          patch({ preview: preview.slice() }, false);
         },
         setTrayOpen: function (open) {
           patch({ trayOpen: open === true }, false);
@@ -761,8 +751,28 @@ window.__ModuleLoader__.load({
           patch({ hidden: hidden }, true);
         },
         reset: function () {
-          patch({ order: [], hidden: [], preview: null }, true);
+          patch({ order: [], hidden: [] }, true);
         },
+      };
+    }
+
+    /** 仅在对应组件开启时安装副作用；开关关闭与插件卸载共用同一条清理路径。 */
+    function watchLayoutFlag(store, key, install) {
+      var enabled = false;
+      var dispose = null;
+      var sync = function () {
+        var next = store.getSnapshot()[key] === true;
+        if (next === enabled) return;
+        enabled = next;
+        if (dispose) dispose();
+        dispose = next ? install() : null;
+      };
+      var off = store.subscribe(sync);
+      try { sync(); } catch (error) { off(); throw error; }
+      return function () {
+        off();
+        if (dispose) dispose();
+        dispose = null;
       };
     }
 
@@ -815,31 +825,32 @@ window.__ModuleLoader__.load({
      * 订阅一个 observable source；优先用 React 18 的 useSyncExternalStore。
      * 测试桩没有这个 hook 时退化为快照读取（不订阅），保证纯逻辑测试可跑。
      * @param store - `{ getSnapshot, subscribe }`。
-     * @returns 当前快照。
+     * @param selector - 返回可稳定比较的选中值。
+     * @returns 选中的快照字段。
      */
-    function useObservedSnapshot(store) {
+    function useObservedSnapshot(store, selector) {
+      var read = function () { return selector(store.getSnapshot()); };
       if (typeof React.useSyncExternalStore === 'function') {
-        return React.useSyncExternalStore(store.subscribe, store.getSnapshot);
+        return React.useSyncExternalStore(store.subscribe, read);
       }
       if (typeof React.useState === 'function' && typeof React.useEffect === 'function') {
-        var pair = React.useState(store.getSnapshot());
+        var pair = React.useState(read);
         React.useEffect(function () {
           return store.subscribe(function () {
-            pair[1](store.getSnapshot());
+            pair[1](read());
           });
-        }, []);
+        }, [store, selector]);
         return pair[0];
       }
-      return store.getSnapshot();
+      return read();
     }
 
     /**
      * 生成一个面板的「影子组件」。
      *
      * 宿主 PanelRow 把 panellist 条目渲染在行图标里；影子注册沿用原组件，
-     * 外面包一层 `data-dfm-id` 的 display:contents 包装。包装负责三件事：
+     * 外面包一层 `data-dfm-id` 的 display:contents 包装。包装负责两件事：
      *  - 把用户收起的面板的宿主行设成 display:none（不占 Tab 序、不改宿主 pin）；
-     *  - 拖拽排序时把预览顺序临时写到宿主行的 CSS `order` 上（宿主行本身不进 DOM 重排）；
      *  - 给拖拽事件委托提供稳定的 id 锚点。
      * @param id - 面板 id。
      * @param Icon - 原插件注册的图标组件。
@@ -847,11 +858,10 @@ window.__ModuleLoader__.load({
      * @returns 包装组件。
      */
     function createShadowPanel(id, Icon, store) {
+      var selectHidden = function (snapshot) { return snapshot.hidden.indexOf(id) !== -1; };
       function ShadowPanel(props) {
-        var snapshot = useObservedSnapshot(store);
+        var hidden = useObservedSnapshot(store, selectHidden);
         var markerRef = React.useRef(null);
-        var hidden = snapshot.hidden.indexOf(id) !== -1;
-        var previewIndex = snapshot.preview === null ? -1 : snapshot.preview.indexOf(id);
         React.useLayoutEffect(function () {
           var marker = markerRef.current;
           // 图标也会在二级区、悬浮菜单和工具栏复用；只能隐藏宿主 nav 的主列表行。
@@ -859,13 +869,11 @@ window.__ModuleLoader__.load({
           if (!row) return undefined;
           row.setAttribute('data-dfm-row-id', id);
           if (hidden) row.style.display = 'none';
-          if (previewIndex !== -1) row.style.order = String(previewIndex);
           return function () {
             row.style.removeProperty('display');
-            row.style.removeProperty('order');
             if (row.getAttribute('data-dfm-row-id') === id) row.removeAttribute('data-dfm-row-id');
           };
-        }, [hidden, previewIndex]);
+        }, [hidden]);
         var content;
         if (typeof Icon === 'function' || (typeof Icon === 'object' && Icon !== null)) {
           content = h(
@@ -903,8 +911,7 @@ window.__ModuleLoader__.load({
      * @returns `{ sync, dispose }`。
      */
     function createShadowManager(ctx, store) {
-      var shadows = {};
-      var wrappers = [];
+      var shadows = Object.create(null);
       var syncing = false;
       var pending = false;
 
@@ -912,8 +919,6 @@ window.__ModuleLoader__.load({
         var record = shadows[id];
         if (!record) return;
         delete shadows[id];
-        var wrapperIndex = wrappers.indexOf(record.wrapper);
-        if (wrapperIndex !== -1) wrappers.splice(wrapperIndex, 1);
         try {
           record.dispose();
         } catch (error) {
@@ -935,9 +940,9 @@ window.__ModuleLoader__.load({
               ? ctx.slots.entries(PANEL_SLOT)
               : ctx.slots.entriesOfSlot(PANEL_SLOT);
         } catch (error) {
-          return [];
+          return null;
         }
-        var winners = {};
+        var winners = Object.create(null);
         var order = [];
         for (var index = 0; index < entries.length; index += 1) {
           var entry = entries[index];
@@ -976,6 +981,7 @@ window.__ModuleLoader__.load({
             return;
           }
           var originals = readOriginals();
+          if (!originals) return;
           var ids = originals.order;
           var saved = mergePanelOrder(store.getSnapshot().order, ids, ids);
           for (var index = 0; index < ids.length; index += 1) {
@@ -1001,7 +1007,6 @@ window.__ModuleLoader__.load({
             var reuseWrapper = record && record.component === winner.entry.component;
             var wrapper = reuseWrapper ? record.wrapper : createShadowPanel(id, winner.entry.component, store);
             if (record) disposeShadow(id);
-            wrappers.push(wrapper);
             try {
               var dispose = ctx.slots.register(
                 {
@@ -1028,8 +1033,7 @@ window.__ModuleLoader__.load({
                 priority: priority,
               };
             } catch (error) {
-              var wrapperIndex = wrappers.indexOf(wrapper);
-              if (wrapperIndex !== -1) wrappers.splice(wrapperIndex, 1);
+              // 注册失败时保留宿主原条目，下次账本变化再尝试。
             }
           }
           var active = Object.keys(shadows);
@@ -1129,24 +1133,6 @@ window.__ModuleLoader__.load({
           strokeWidth: 1,
         },
         h('path', { d: 'M4.25 6.25 8 10 11.75 6.25', stroke: 'currentColor' }),
-      );
-    }
-
-    /** 「更多」行右侧的展开箭头：收起时 `›`，展开时 CSS 转 90° 变成 `⌄`。 */
-    function ChevronRightIcon(props) {
-      return h(
-        'svg',
-        {
-          width: props.size,
-          height: props.size,
-          viewBox: '0 0 16 16',
-          fill: 'none',
-          xmlns: 'http://www.w3.org/2000/svg',
-          'aria-hidden': 'true',
-          className: 'DFM_svg',
-          strokeWidth: 1,
-        },
-        h('path', { d: 'M6.25 3.75 10.5 8l-4.25 4.25', stroke: 'currentColor' }),
       );
     }
 
@@ -1655,10 +1641,10 @@ window.__ModuleLoader__.load({
         toggleTray: props.toggleTray,
         resetLayout: props.resetLayout,
       };
-      var panelActive = props.usePanelInfo(isPanelActive);
       var activePanelId = props.usePanelInfo(function (info) {
         return info.activePanelId;
       });
+      var panelActive = activePanelId !== null;
       var layout = props.useLayout(function (snapshot) {
         return snapshot;
       });
@@ -1838,8 +1824,8 @@ window.__ModuleLoader__.load({
       if (!container || !layout.enabled || !wide || !ReactDOM || typeof ReactDOM.createPortal !== 'function') {
         return null;
       }
-      var ordered = panelsInOrder(panels, layout.preview);
-      var hiddenSet = {};
+      var ordered = panelsInOrder(panels, layout.order);
+      var hiddenSet = Object.create(null);
       for (var hiddenIndex = 0; hiddenIndex < layout.hidden.length; hiddenIndex += 1) {
         hiddenSet[layout.hidden[hiddenIndex]] = true;
       }
@@ -1923,6 +1909,13 @@ window.__ModuleLoader__.load({
       if (typeof document === 'undefined' || !layout) return undefined;
 
       var session = null;
+      var settleFrame = null;
+      var disposed = false;
+
+      function cancelSettle() {
+        if (settleFrame !== null) cancelAnimationFrame(settleFrame);
+        settleFrame = null;
+      }
 
       /** 切换「松手即折叠」的指针提示；只影响指针样式，失败也不影响拖拽本身。 */
       function setArmed(armed) {
@@ -1955,7 +1948,7 @@ window.__ModuleLoader__.load({
       }
 
       function settle(drag) {
-        if (!drag.handle.isConnected) return;
+        if (disposed || !drag.handle.isConnected) return;
         var width = parseFloat(drag.handle.style.left);
         var overshoot = Number.isFinite(width)
           ? dragOvershoot(width, drag.startWidth, drag.startX, drag.endX)
@@ -1971,7 +1964,8 @@ window.__ModuleLoader__.load({
         drag.endX = event.clientX;
         cleanup();
         if (typeof requestAnimationFrame === 'function') {
-          requestAnimationFrame(function () {
+          settleFrame = requestAnimationFrame(function () {
+            settleFrame = null;
             settle(drag);
           });
         } else {
@@ -1995,6 +1989,7 @@ window.__ModuleLoader__.load({
         if (!handle) return;
         var startWidth = parseFloat(handle.style.left);
         if (!Number.isFinite(startWidth)) return;
+        cancelSettle();
         session = {
           pointerId: event.pointerId,
           startX: event.clientX,
@@ -2008,9 +2003,14 @@ window.__ModuleLoader__.load({
         document.addEventListener('pointercancel', onPointerCancel);
       }
 
+      var onBlur = function () { cancelSettle(); cleanup(); };
+      if (typeof window.addEventListener === 'function') window.addEventListener('blur', onBlur);
       document.addEventListener('pointerdown', onPointerDown);
       return function () {
+        disposed = true;
+        cancelSettle();
         cleanup();
+        if (typeof window.removeEventListener === 'function') window.removeEventListener('blur', onBlur);
         document.removeEventListener('pointerdown', onPointerDown);
       };
     }
@@ -2024,16 +2024,7 @@ window.__ModuleLoader__.load({
      * @returns 命中的元素，或 null。
      */
     function closestMarked(node, attribute) {
-      var current = node;
-      var selector = '[' + attribute + ']';
-      while (current && current.nodeType === 1) {
-        if (current.closest) {
-          var hit = current.closest(selector);
-          if (hit) return hit;
-        }
-        current = current.parentElement;
-      }
-      return null;
+      return node && typeof node.closest === 'function' ? node.closest('[' + attribute + ']') : null;
     }
 
     /** 只匹配宿主 nav 的直接面板行，排除复用影子图标的所有自绘入口。 */
@@ -2061,6 +2052,7 @@ window.__ModuleLoader__.load({
       if (!button || !store) return function () {};
       var timer = null;
       var toggling = false;
+      var menu = null;
       function cancel() {
         if (timer !== null) clearTimeout(timer);
         timer = null;
@@ -2078,8 +2070,11 @@ window.__ModuleLoader__.load({
         if (button.getAttribute('aria-expanded') === 'true') toggle();
       }
       function popup() {
+        if (button.getAttribute('aria-expanded') !== 'true') { menu = null; return null; }
+        if (menu && menu.isConnected) return menu;
         var marker = document.querySelector('[data-dfm-sidebar-menu]');
-        return marker && marker.closest('[role="menu"]');
+        menu = marker && marker.closest('[role="menu"]');
+        return menu;
       }
       function owns(node) {
         var menu = popup();
@@ -2223,6 +2218,7 @@ window.__ModuleLoader__.load({
       if (typeof document === 'undefined') return undefined;
       var session = null;
       var indicator = createInsertionIndicator();
+      var frame = null;
 
       function platformOk() {
         var root = document.documentElement;
@@ -2234,7 +2230,7 @@ window.__ModuleLoader__.load({
       }
 
       function hiddenSetOf(ids) {
-        var set = {};
+        var set = Object.create(null);
         for (var index = 0; index < ids.length; index += 1) set[ids[index]] = true;
         return set;
       }
@@ -2397,6 +2393,8 @@ window.__ModuleLoader__.load({
         document.removeEventListener('pointerup', onPointerUp, true);
         document.removeEventListener('pointercancel', onPointerCancel, true);
         document.removeEventListener('keydown', onKeyDown, true);
+        if (frame !== null) cancelAnimationFrame(frame);
+        frame = null;
         clearHighlights();
         if (typeof document !== 'undefined') {
           document.documentElement.removeAttribute(DRAG_ROOT_ATTR);
@@ -2476,8 +2474,20 @@ window.__ModuleLoader__.load({
         } else if (event.cancelable) {
           event.preventDefault();
         }
-        if (session.ghost) session.ghost.move(event.clientX, event.clientY);
-        updateDrag(event.clientX, event.clientY);
+        session.x = event.clientX;
+        session.y = event.clientY;
+        if (frame !== null) return;
+        if (typeof requestAnimationFrame === 'function') {
+          frame = requestAnimationFrame(function () {
+            frame = null;
+            if (!session || !session.active) return;
+            if (session.ghost) session.ghost.move(session.x, session.y);
+            updateDrag(session.x, session.y);
+          });
+        } else {
+          if (session.ghost) session.ghost.move(session.x, session.y);
+          updateDrag(session.x, session.y);
+        }
       }
 
       function onPointerUp(event) {
@@ -2669,6 +2679,7 @@ window.__ModuleLoader__.load({
 
       function updateDrag() {
         if (!session || !session.active) return;
+        if (session.ghost) session.ghost.move(session.x, session.y);
         var target = dropTargetAt(session.x, session.y, session.id);
         if (target && indicator) {
           indicator.showHorizontal(target.lineX, target.top, target.height);
@@ -2692,11 +2703,11 @@ window.__ModuleLoader__.load({
         } else if (event.cancelable) {
           event.preventDefault();
         }
-        if (session.ghost) session.ghost.move(event.clientX, event.clientY);
-        updateDrag();
-        // 平铺由 React 提交后，再按新位置量一次，菜单源行此时可以安全卸载。
+        // 同一帧的 pointermove 合并为一次测量；React 提交平铺后再读取几何。
         if (frame === null && typeof requestAnimationFrame === 'function') {
           frame = requestAnimationFrame(function () { frame = null; updateDrag(); });
+        } else if (typeof requestAnimationFrame !== 'function') {
+          updateDrag();
         }
       }
 
@@ -2821,12 +2832,8 @@ window.__ModuleLoader__.load({
       var enabled = layoutState.enabled === true;
       var hiddenIds = enabled && Array.isArray(layoutState.hidden) ? layoutState.hidden : [];
       // 影子注册会把宿主账本顺序改成保存的顺序；这里再兜一层，保证账本
-      // 尚未刷新（拖拽预览）或影子尚未重建时工具栏也按同一顺序渲染。
-      var orderSource = Array.isArray(layoutState.preview)
-        ? layoutState.preview
-        : Array.isArray(layoutState.order) && layoutState.order.length > 0
-          ? layoutState.order
-          : null;
+      // 尚未刷新或影子尚未重建时工具栏也按同一顺序渲染。
+      var orderSource = layoutState.order;
       var effectivePanels = enabled && orderSource ? panelsInOrder(panels, orderSource) : panels;
       var split = splitPanels(effectivePanels, hiddenIds);
       // 拖动时全部平铺，收起项保留在独立隐藏区，跨区松手才修改显隐。
@@ -2970,13 +2977,14 @@ window.__ModuleLoader__.load({
       ctx.effect(function () {
         return ctx.slots.inject(PANEL_SLOT, function () {
           var offSlot = ctx.slots.subscribe(PANEL_SLOT, syncAll);
-          // 只有持久字段（开关/顺序）变化才需要重建影子；拖拽预览变化不必。
-          var lastShadowKey = null;
+          // 只有开关/顺序变化才需要重建影子；临时拖动状态变化不必。
+          var lastShadowEnabled = layout.getSnapshot().enabled;
+          var lastShadowOrder = layout.getSnapshot().order;
           var syncShadowsIfChanged = function () {
             var snapshot = layout.getSnapshot();
-            var key = (snapshot.enabled ? '1' : '0') + ':' + snapshot.order.join(',');
-            if (key === lastShadowKey) return;
-            lastShadowKey = key;
+            if (snapshot.enabled === lastShadowEnabled && snapshot.order === lastShadowOrder) return;
+            lastShadowEnabled = snapshot.enabled;
+            lastShadowOrder = snapshot.order;
             shadows.sync();
           };
           var offLayout = layout.subscribe(syncShadowsIfChanged);
@@ -2993,10 +3001,10 @@ window.__ModuleLoader__.load({
 
       // 两处拖拽（展开侧栏行 / 折叠工具栏图标）共用一个状态 store。
       ctx.effect(function () {
-        return installPanelDrag(layout, panels.source);
+        return watchLayoutFlag(layout, 'enabled', function () { return installPanelDrag(layout, panels.source); });
       }, 'fold-minimal: expanded panel drag');
       ctx.effect(function () {
-        return installRailDrag(layout, panels.source);
+        return watchLayoutFlag(layout, 'enabled', function () { return installRailDrag(layout, panels.source); });
       }, 'fold-minimal: rail panel drag');
 
       var layoutActions = {
@@ -3045,66 +3053,38 @@ window.__ModuleLoader__.load({
       // 原有「折叠菜单」组件的生命周期：插件设置里关闭时撤销 shell.leading
       // 注册，宿主官方按钮自动回来；拖拽收起也属于这个组件。
       ctx.effect(function () {
-        var dispose = null;
-        var sync = function () {
-          var enabled = layout.getSnapshot().toolbarEnabled !== false;
-          if (enabled && !dispose) {
-            dispose = ctx.slots.inject(SLOT, function () {
-              return ctx.slots.register(
-                {
-                  name: SLOT,
-                  priority: -1,
-                  locale: NS,
-                  inject: function () {
-                    return {
-                      toggleSidebar: actions.toggleSidebar,
-                      startSession: actions.startSession,
-                      selectPanel: actions.selectPanel,
-                      backToSession: actions.backToSession,
-                      trackEntryClick: actions.trackEntryClick,
-                      hooks: {
-                        shortcuts: ctx.shortcuts.catalog,
-                        panels: panels.source,
-                        layout: layout.observable,
-                      },
-                    };
-                  },
+        return watchLayoutFlag(layout, 'toolbarEnabled', function () {
+          return ctx.slots.inject(SLOT, function () {
+            return ctx.slots.register(
+              {
+                name: SLOT,
+                priority: -1,
+                locale: NS,
+                inject: function () {
+                  return {
+                    toggleSidebar: actions.toggleSidebar,
+                    startSession: actions.startSession,
+                    selectPanel: actions.selectPanel,
+                    backToSession: actions.backToSession,
+                    trackEntryClick: actions.trackEntryClick,
+                    hooks: {
+                      shortcuts: ctx.shortcuts.catalog,
+                      panels: panels.source,
+                      layout: layout.observable,
+                    },
+                  };
                 },
-                LeadingRail,
-              );
-            });
-          } else if (!enabled && dispose) {
-            dispose();
-            dispose = null;
-          }
-        };
-        var off = layout.subscribe(sync);
-        sync();
-        return function () {
-          off();
-          if (dispose) dispose();
-        };
+              },
+              LeadingRail,
+            );
+          });
+        });
       }, 'fold-minimal: toolbar component');
 
       // 拖拽收起只在 darwin 生效（installDragCollapse 内部判定），
       // 且跟随「折叠菜单」组件的开关。
       ctx.effect(function () {
-        var dispose = null;
-        var sync = function () {
-          var enabled = layout.getSnapshot().toolbarEnabled !== false;
-          if (enabled && !dispose) {
-            dispose = installDragCollapse(ctx.layout) || null;
-          } else if (!enabled && dispose) {
-            dispose();
-            dispose = null;
-          }
-        };
-        var off = layout.subscribe(sync);
-        sync();
-        return function () {
-          off();
-          if (dispose) dispose();
-        };
+        return watchLayoutFlag(layout, 'toolbarEnabled', function () { return installDragCollapse(ctx.layout); });
       }, 'fold-minimal: drag to collapse');
 
       // 展开态：返回按钮 + 「更多」行 chevron + 下方二级区。
@@ -3157,41 +3137,26 @@ window.__ModuleLoader__.load({
       // 前置分组，既保证二级区锚点存在，也把收起项列在宿主固定动作之前。
       ctx.effect(function () {
         return ctx.slots.inject('sidebar.panellist.actions', function () {
-          var dispose = null;
-          var sync = function () {
-            var enabled = layout.getSnapshot().enabled;
-            if (enabled && !dispose) {
-              dispose = ctx.slots.register(
-                {
-                  name: 'sidebar.panellist.actions',
-                  id: 'fold-minimal.more-anchor',
-                  order: -1000000,
-                  locale: NS,
-                  inject: function () {
-                    return {
-                      selectPanel: actions.selectPanel,
-                      trackEntryClick: actions.trackEntryClick,
-                      hooks: { layout: layout.observable, panels: panels.source },
-                    };
-                  },
+          return watchLayoutFlag(layout, 'enabled', function () {
+            return ctx.slots.register(
+              {
+                name: 'sidebar.panellist.actions',
+                id: 'fold-minimal.more-anchor',
+                order: -1000000,
+                locale: NS,
+                inject: function () {
+                  return {
+                    selectPanel: actions.selectPanel,
+                    trackEntryClick: actions.trackEntryClick,
+                    hooks: { layout: layout.observable, panels: panels.source },
+                  };
                 },
-                SidebarMoreItems,
-              );
-            } else if (!enabled && dispose) {
-              dispose();
-              dispose = null;
-            }
-          };
-          var off = layout.subscribe(sync);
-          sync();
-          return function () {
-            off();
-            if (dispose) dispose();
-          };
+              },
+              SidebarMoreItems,
+            );
+          });
         });
       }, 'fold-minimal: more anchor');
-
-
     }
 
     return {
@@ -3220,6 +3185,8 @@ window.__ModuleLoader__.load({
         sanitizeLayoutPrefs: sanitizeLayoutPrefs,
         createPanelLayoutStore: createPanelLayoutStore,
         createShadowPanel: createShadowPanel,
+        createShadowManager: createShadowManager,
+        readLayoutPrefs: readLayoutPrefs,
         placePanel: placePanel,
         dragOvershoot: dragOvershoot,
         installDragCollapse: installDragCollapse,

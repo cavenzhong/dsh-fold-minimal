@@ -53,6 +53,8 @@ const {
   sanitizeLayoutPrefs,
   createPanelLayoutStore,
   createShadowPanel,
+  createShadowManager,
+  readLayoutPrefs,
   placePanel,
   dragOvershoot,
   installDragCollapse,
@@ -62,7 +64,7 @@ const {
   isPanelActive,
 } = exports.__test;
 
-const EMPTY_LAYOUT = { enabled: false, order: [], hidden: [], trayOpen: false, preview: null };
+const EMPTY_LAYOUT = { enabled: false, order: [], hidden: [], trayOpen: false };
 
 function makeCtx(entries) {
   return { slots: { entriesOfSlot: (name) => (name === PANEL_SLOT ? entries : []) } };
@@ -374,7 +376,7 @@ test('sanitizeLayoutPrefs：非法值回落到关闭，id 去重且丢弃空值'
   assert.equal(sanitizeLayoutPrefs({ toolbar: false }).toolbar, false);
 });
 
-test('面板排序 store：开关/顺序/收起/预览/重置', () => {
+test('面板排序 store：开关/顺序/收起/重置，相同顺序不重复通知', () => {
   const store = createPanelLayoutStore({
     enabled: true,
     order: ['b'],
@@ -388,7 +390,6 @@ test('面板排序 store：开关/顺序/收起/预览/重置', () => {
     trayOpen: false,
     dragActive: false,
     dragPanelId: null,
-    preview: null,
   });
   let notifications = 0;
   const unsubscribe = store.subscribe(() => {
@@ -404,11 +405,9 @@ test('面板排序 store：开关/顺序/收起/预览/重置', () => {
   assert.deepEqual(store.getSnapshot().hidden, ['c']);
   store.setOrder(['c', 'b']);
   assert.deepEqual(store.getSnapshot().order, ['c', 'b']);
-  store.setPreview(['b', 'c']);
-  assert.deepEqual(store.getSnapshot().preview, ['b', 'c']);
   const before = notifications;
-  store.setPreview(['b', 'c']);
-  assert.equal(notifications, before, '相同预览不应触发重渲染');
+  store.setOrder(['c', 'b']);
+  assert.equal(notifications, before, '相同顺序不应触发重渲染');
   store.setTrayOpen(true);
   assert.equal(store.getSnapshot().trayOpen, true);
   store.setDragActive(true);
@@ -475,13 +474,12 @@ test('apply 注册展开态 chrome、插件页组件开关与工具栏 hooks', (
   ]);
 });
 
-test('折叠态工具栏：开启排序与折叠后，收起项进 More；存在 preview 快照时按它排序', () => {
+test('折叠态工具栏：开启排序与折叠后，收起项进 More；已提交顺序立即反映到工具栏', () => {
   const layout = {
     enabled: true,
     order: ['panel-2', 'panel-0', 'panel-1'],
     hidden: ['panel-1'],
     trayOpen: false,
-    preview: null,
   };
   const { tree } = renderRail({ activePanelId: null }, fakePanels(3), layout);
   const elements = flatten(tree);
@@ -501,7 +499,7 @@ test('折叠态工具栏：开启排序与折叠后，收起项进 More；存在
 
   const dragging = {
     ...layout,
-    preview: ['panel-0', 'panel-2', 'panel-1'],
+    order: ['panel-0', 'panel-2', 'panel-1'],
   };
   const during = flatten(renderRail({ activePanelId: null }, fakePanels(3), dragging).tree).filter(
     (element) => element.props.panel !== undefined,
@@ -509,7 +507,7 @@ test('折叠态工具栏：开启排序与折叠后，收起项进 More；存在
   assert.deepEqual(
     during.map((element) => element.props.panel.id),
     ['panel-0', 'panel-2'],
-    '拖拽预览顺序应立即反映到工具栏',
+    '已提交顺序应立即反映到工具栏',
   );
 });
 
@@ -521,7 +519,6 @@ test('折叠态工具栏：拖动时平铺全部面板并标明隐藏区，松�
     hidden: ['panel-5'],
     trayOpen: false,
     dragActive: true,
-    preview: null,
   };
   const panels = fakePanels(6);
   const elements = flatten(renderRail({ activePanelId: null }, panels, layout).tree);
@@ -1078,5 +1075,315 @@ test('折叠工具栏跨区拖放：隐藏、恢复、隐藏区内排序和空�
     }
   } finally {
     globalThis.document = previousDocument;
+  }
+});
+
+test('布局状态去重：重复开关/顺序/显隐不写存储，临时拖动状态只通知', () => {
+  const storage = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  const previousDocument = globalThis.document;
+  let writes = 0;
+  let cookieWrites = 0;
+  try {
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: { setItem() { writes += 1; } } });
+    globalThis.document = { set cookie(value) { cookieWrites += 1; } };
+    const store = createPanelLayoutStore({ enabled: true, order: ['a', 'b'], hidden: ['b'] });
+    let notifications = 0;
+    store.subscribe(() => { notifications += 1; });
+    const original = store.getSnapshot();
+    store.setEnabled(true);
+    store.setToolbarEnabled(true);
+    store.setOrder(['a', 'b', 'a']);
+    store.setHidden(['b']);
+    store.setPlacement(['a', 'b'], ['b']);
+    store.setTrayOpen(false);
+    store.setDragActive(false);
+    assert.equal(store.getSnapshot(), original, '没有变化时保留快照引用');
+    assert.deepEqual([notifications, writes, cookieWrites], [0, 0, 0]);
+    store.setTrayOpen(true);
+    store.setTrayOpen(true);
+    store.setDragActive(true, 'a');
+    store.setDragActive(true, 'a');
+    store.setDragActive(false);
+    assert.deepEqual([notifications, writes, cookieWrites], [3, 0, 0]);
+    store.setPlacement(['b', 'a'], []);
+    assert.deepEqual([notifications, writes, cookieWrites], [4, 1, 1]);
+  } finally {
+    if (storage) Object.defineProperty(window, 'localStorage', storage);
+    else delete window.localStorage;
+    globalThis.document = previousDocument;
+  }
+});
+
+test('存储受限：cookie/localStorage 属性读取或写入抛错不阻止加载与内存更新', () => {
+  const storage = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  const previousDocument = globalThis.document;
+  const fallback = { enabled: true, toolbar: false, order: ['b', 'a'], hidden: ['b'] };
+  try {
+    globalThis.document = { get cookie() { throw new Error('cookie blocked'); }, set cookie(value) { throw new Error('cookie blocked'); } };
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: () => JSON.stringify(fallback) } });
+    assert.deepEqual(readLayoutPrefs(), fallback, 'cookie 不可读时仍尝试 localStorage');
+    globalThis.document = { cookie: `${LAYOUT_COOKIE}=%broken` };
+    assert.deepEqual(readLayoutPrefs(), fallback, '损坏 cookie 不影响镜像回退');
+    globalThis.document = { cookie: `${LAYOUT_COOKIE}=${encodeURIComponent(JSON.stringify({ enabled: false }))}` };
+    Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('storage blocked'); } });
+    assert.equal(readLayoutPrefs().enabled, false, '有效 cookie 优先，不触碰镜像');
+    globalThis.document = { get cookie() { throw new Error('cookie blocked'); }, set cookie(value) { throw new Error('cookie blocked'); } };
+    assert.deepEqual(readLayoutPrefs(), { enabled: false, toolbar: true, order: [], hidden: [] });
+    const store = createPanelLayoutStore(readLayoutPrefs());
+    assert.doesNotThrow(() => store.setEnabled(true));
+    assert.equal(store.getSnapshot().enabled, true);
+  } finally {
+    if (storage) Object.defineProperty(window, 'localStorage', storage);
+    else delete window.localStorage;
+    globalThis.document = previousDocument;
+  }
+});
+
+test('面板 id 与对象原型同名时，排序/收起/影子注册仍覆盖全部面板', () => {
+  const ids = ['__proto__', 'constructor', 'toString', 'panel'];
+  const panels = ids.map((id, order) => ({ id, order, label: id, Icon: () => null }));
+  assert.deepEqual(mergePanelOrder([], ids, ids), ids);
+  assert.deepEqual(splitPanels(panels, ['panel']).hidden.map((panel) => panel.id), ['panel']);
+  assert.deepEqual(panelIdsOf(panelsInOrder(panels, [...ids].reverse())), [...ids].reverse());
+  assert.deepEqual(replaceVisibleOrder(ids, ['panel'], ids.slice(0, 3).reverse()), ['toString', 'constructor', '__proto__', 'panel']);
+  assert.deepEqual(replaceHiddenOrder(ids, ids.slice(0, 3), ids.slice(0, 3).reverse()), ['toString', 'constructor', '__proto__', 'panel']);
+  const registered = [];
+  const manager = createShadowManager({ slots: {
+    entries: () => panels.map((panel) => ({ options: panel, component: panel.Icon })),
+    register(options) { registered.push(options.id); return () => {}; },
+  } }, createPanelLayoutStore({ enabled: true }));
+  manager.sync();
+  assert.deepEqual(registered, ids);
+  manager.dispose();
+});
+
+test('影子账本：读取失败保留现状，重排序复用包装，移除/关闭后完整清理', () => {
+  const Icon = () => null;
+  const inject = () => ({});
+  const original = { options: { id: 'a', label: 'A', order: 0, priority: 2 }, component: Icon, inject, locale: 'test' };
+  let originals = [original];
+  let failRead = false;
+  let failRegister = false;
+  const registrations = [];
+  const active = new Set();
+  const store = createPanelLayoutStore({ enabled: true });
+  const manager = createShadowManager({ slots: {
+    entries() { if (failRead) throw new Error('unavailable'); return originals; },
+    register(options, component) {
+      if (failRegister) throw new Error('unavailable');
+      const entry = { options, component };
+      registrations.push(entry);
+      active.add(entry);
+      return () => active.delete(entry);
+    },
+  } }, store);
+  try {
+    manager.sync();
+    assert.equal(active.size, 1);
+    assert.equal(registrations[0].options.priority, 1);
+    assert.equal(registrations[0].options.inject, inject);
+    manager.sync();
+    assert.equal(registrations.length, 1, '未变化时不重复注册');
+    failRead = true;
+    assert.doesNotThrow(() => manager.sync());
+    assert.equal(active.size, 1, '暂时读取失败不撤销现有影子');
+    failRead = false;
+    originals = [original, { options: { id: 'b', order: 1 }, component: Icon }];
+    store.setOrder(['b', 'a']);
+    manager.sync();
+    assert.equal(active.size, 2);
+    const currentA = [...active].find((entry) => entry.options.id === 'a');
+    assert.equal(currentA.component, registrations[0].component, '纯顺序变化保留组件身份');
+    originals = [original];
+    manager.sync();
+    assert.equal(active.size, 1, '原始面板移除时撤销其影子');
+    store.setEnabled(false);
+    manager.sync();
+    assert.equal(active.size, 0);
+    store.setEnabled(true);
+    failRegister = true;
+    assert.doesNotThrow(() => manager.sync());
+    assert.equal(active.size, 0);
+    failRegister = false;
+    manager.sync();
+    assert.equal(active.size, 1, '注册恢复后可重试');
+  } finally { manager.dispose(); }
+  assert.equal(active.size, 0);
+});
+
+function mockAnimationFrames(t) {
+  const pending = new Map();
+  let nextId = 0;
+  t.mock.method(globalThis, 'requestAnimationFrame', (callback) => { pending.set(++nextId, callback); return nextId; });
+  t.mock.method(globalThis, 'cancelAnimationFrame', (id) => pending.delete(id));
+  return {
+    pending,
+    flush() { const callbacks = [...pending.values()]; pending.clear(); for (const callback of callbacks) callback(); },
+  };
+}
+
+test('拖拽收起：停用/失焦取消待执行帧，正在拖动时失焦清理指针与监听', (t) => {
+  const previousDocument = globalThis.document;
+  const previousRaf = globalThis.requestAnimationFrame;
+  const previousCancel = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame ??= () => 0;
+  globalThis.cancelAnimationFrame ??= () => {};
+  const frames = mockAnimationFrames(t);
+  const events = new Map();
+  window.addEventListener = (name, fn) => events.set(name, fn);
+  window.removeEventListener = (name) => events.delete(name);
+  try {
+    for (const ending of ['dispose', 'blur', 'active-blur', 'settle']) {
+      const env = createDragEnv('darwin');
+      let toggles = 0;
+      const dispose = installDragCollapse({ toggleSidebar() { toggles += 1; } });
+      env.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 500, target: env.target });
+      env.handle.style.left = '264px';
+      env.dispatch('pointermove', { pointerId: 1, clientX: 380 });
+      assert.equal(env.armed(), true);
+      if (ending !== 'active-blur') {
+        env.dispatch('pointerup', { pointerId: 1, clientX: 380 });
+        assert.equal(frames.pending.size, 1);
+      }
+      if (ending === 'dispose') dispose();
+      else if (ending !== 'settle') events.get('blur')();
+      frames.flush();
+      assert.equal(toggles, ending === 'settle' ? 1 : 0, ending);
+      assert.equal(env.armed(), false);
+      dispose();
+      assert.equal(env.listenerCount(), 0);
+      assert.equal(events.size, 0);
+      assert.equal(frames.pending.size, 0);
+    }
+  } finally {
+    delete window.addEventListener;
+    delete window.removeEventListener;
+    t.mock.restoreAll();
+    globalThis.requestAnimationFrame = previousRaf;
+    globalThis.cancelAnimationFrame = previousCancel;
+    globalThis.document = previousDocument;
+  }
+});
+
+test('拖拽测量按帧合并：同帧 100 次 pointermove 只测量一次，取消后没有残余帧', (t) => {
+  const previousDocument = globalThis.document;
+  const previousRaf = globalThis.requestAnimationFrame;
+  const previousCancel = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame ??= () => 0;
+  globalThis.cancelAnimationFrame ??= () => {};
+  const frames = mockAnimationFrames(t);
+  try {
+    for (const install of [installPanelDrag, installRailDrag]) {
+      const env = createPanelEnv('darwin');
+      globalThis.document = env.document;
+      let measurements = 0;
+      const query = env.document.querySelector.bind(env.document);
+      env.document.querySelector = (selector) => { measurements += 1; return query(selector); };
+      const store = createPanelLayoutStore({ enabled: true });
+      const dispose = install(store, { getSnapshot: () => fakePanels(2) });
+      env.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 20, clientY: 14, target: install === installPanelDrag ? env.marker : env.railButton });
+      for (let index = 0; index < 100; index += 1) env.dispatch('pointermove', { pointerId: 1, clientX: 30 + index, clientY: 14 });
+      assert.equal(measurements, 0, '提交动画帧前不做布局查询');
+      assert.equal(frames.pending.size, 1);
+      frames.flush();
+      const firstFrameReads = measurements;
+      assert.ok(firstFrameReads > 0);
+      for (let index = 0; index < 100; index += 1) env.dispatch('pointermove', { pointerId: 1, clientX: 40 + index, clientY: 14 });
+      assert.equal(measurements, firstFrameReads);
+      assert.equal(frames.pending.size, 1);
+      env.dispatch('pointercancel', { pointerId: 1 });
+      assert.equal(frames.pending.size, 0);
+      frames.flush();
+      assert.equal(store.getSnapshot().dragActive, false);
+      dispose();
+      assert.equal(env.listenerCount(), 0);
+    }
+  } finally {
+    t.mock.restoreAll();
+    globalThis.requestAnimationFrame = previousRaf;
+    globalThis.cancelAnimationFrame = previousCancel;
+    globalThis.document = previousDocument;
+  }
+});
+
+test('apply 组件生命周期：默认不装排序监听，重复开关不重复注册，关闭/卸载清空资源', () => {
+  const previousDocument = globalThis.document;
+  const env = createPanelEnv('darwin');
+  globalThis.document = env.document;
+  const effects = [];
+  const entries = new Set();
+  let totalRegistrations = 0;
+  const effect = (callback) => { const dispose = callback(); if (typeof dispose === 'function') effects.push(dispose); return dispose; };
+  const ctx = {
+    effect,
+    locale: { register: () => () => {}, subscribe: () => () => {} },
+    slots: {
+      entries: () => [], entriesOfSlot: () => [], subscribe: () => () => {},
+      inject: (_name, callback) => effect(callback),
+      register(options, component) {
+        totalRegistrations += 1;
+        const entry = { options, component };
+        entries.add(entry);
+        return () => entries.delete(entry);
+      },
+    },
+    layout: { toggleSidebar() {}, selectPanel() {} },
+    uiWorkspace: { startSession() {} },
+    shortcuts: { catalog: { getSnapshot: () => [], subscribe: () => () => {} } },
+    get: () => undefined,
+  };
+  try {
+    exports.apply(ctx);
+    const settings = [...entries].find((entry) => entry.options.name === 'plugins.bundle.config').options.inject();
+    assert.equal(env.listenerCount(), 1, '默认只安装拖到最小收起的监听');
+    const initialRegistrations = totalRegistrations;
+    settings.setLayoutEnabled(true);
+    assert.equal(env.listenerCount(), 3, '开启排序后安装两处 pointerdown');
+    const enabledRegistrations = totalRegistrations;
+    assert.equal(enabledRegistrations, initialRegistrations + 1, '更多动作仅注册一次');
+    settings.setLayoutEnabled(true);
+    assert.equal(totalRegistrations, enabledRegistrations);
+    settings.setToolbarEnabled(false);
+    assert.equal(env.listenerCount(), 2);
+    assert.equal([...entries].some((entry) => entry.options.name === SLOT), false);
+    settings.setLayoutEnabled(false);
+    assert.equal(env.listenerCount(), 0, '两个组件都关闭后无拖拽监听');
+    assert.equal([...entries].some((entry) => entry.options.id === 'fold-minimal.more-anchor'), false);
+    settings.setLayoutEnabled(true);
+    settings.setToolbarEnabled(true);
+    assert.equal(env.listenerCount(), 3, '重新启用只恢复一组监听');
+    while (effects.length) effects.pop()();
+    assert.equal(env.listenerCount(), 0);
+    assert.equal(entries.size, 0);
+  } finally {
+    while (effects.length) effects.pop()();
+    globalThis.document = previousDocument;
+  }
+});
+
+test('影子图标只订阅自己的隐藏布尔值，拖拽/二级区/顺序变化保持选中快照稳定', () => {
+  const store = createPanelLayoutStore({ enabled: true, hidden: ['b'] });
+  const Shadow = createShadowPanel('a', () => null, store);
+  const previousHook = fakeReact.useSyncExternalStore;
+  const snapshots = [];
+  let unsubscribe;
+  fakeReact.useSyncExternalStore = (subscribe, getSnapshot) => {
+    snapshots.push(getSnapshot());
+    unsubscribe = subscribe(() => snapshots.push(getSnapshot()));
+    return getSnapshot();
+  };
+  try {
+    Shadow({ size: 16 });
+    store.setDragActive(true, 'a');
+    store.setTrayOpen(true);
+    store.setOrder(['b', 'a']);
+    assert.deepEqual(snapshots, [false, false, false, false]);
+    store.hidePanel('a');
+    assert.equal(snapshots.at(-1), true);
+    store.showPanel('a');
+    assert.equal(snapshots.at(-1), false);
+  } finally {
+    unsubscribe?.();
+    fakeReact.useSyncExternalStore = previousHook;
   }
 });

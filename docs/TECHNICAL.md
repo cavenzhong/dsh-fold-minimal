@@ -74,7 +74,8 @@
     `localStorage` 按 origin（含端口）隔离，重启会丢；cookie 只按 host 隔离，
     能跨端口保留。键为 `dsh_fold_minimal_panel_layout_v1`，`Max-Age` 一年。
   - `localStorage` 镜像（`dsh.fold-minimal.panel-layout.v1`）只作同源兜底。
-  - `trayOpen`、`dragActive`、`dragPanelId` 与拖拽中的 `preview` 只存在内存，不持久化。
+  - `trayOpen`、`dragActive`、`dragPanelId` 只存在内存，不持久化；拖动时只画插入线，松手才提交顺序，不维护额外预览顺序。
+  - 0.4.3 起字段与数组内容相同时不创建新快照、不通知订阅者，也不重复写入；cookie / localStorage 的属性访问与读写均支持异常降级。
 
 ### 顺序：影子注册（不替换宿主、不搬 DOM）
 
@@ -123,6 +124,7 @@
   再用一帧重新测量插入线；目标位置只根据对应分区内的图标计算。
 - 跨组放置通过 `setPlacement` 一次提交顺序和收起状态，避免恢复面板先闪到旧位置。
   无效落点不提交；Esc、pointercancel、窗口失焦、关闭开关和卸载都会清理拖动状态。
+- 0.4.3 起，两处拖拽均按动画帧合并指针移动，仅使用最新坐标测量与绘制；取消时移除待执行帧，松手独立计算最终落点。排序开关关闭时不安装这两个控制器及其插入提示节点。
 
 ### 收进「更多」：二级区
 
@@ -202,6 +204,7 @@ plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
 |---|---|
 | `index.js` | Host 半，空实现（bundle 行需要一个包主模块）。 |
 | `client.js` | 浏览器半：`shell.leading` 折叠工具栏（priority `-1`，随「折叠菜单」开关动态注册）、展开态返回按钮注入、`plugins.bundle.config` 的两个组件开关、`sidebar.panellist` 影子注册与拖拽换位、`sidebar.footer.action` 里的 More chevron/二级区/portal、`sidebar.panellist.actions` 的 More 锚点、状态 store 与 cookie 持久化、拖到底继续左拖即收起、clearance 同步。 |
+| `docs/CODE_REVIEW.md` | 0.4.3 的结构、冗余和性能排查结论、计数验证与未覆盖边界。 |
 | `cordis.patch.yml` | Loader 行 `fold-minimal`。 |
 | `locale/zh.json`、`locale/en.json` | Plugins 页展示用标题/描述。 |
 | `icon.svg` | 插件图标。 |
@@ -274,15 +277,16 @@ pnpm test
   `splitPanels`（面板切分规则，含收起项）、`mergePanelOrder`（保存顺序与新增面板
   合并）、`moveVisibleOrder` / `replaceVisibleOrder` / `replaceHiddenOrder`
   （拖拽落点与收起项位置）、`panelsInOrder`、`sanitizeLayoutPrefs`、排序 store 的
-  开关/预览去重/收起/重置、`dragOvershoot`（拖拽过冲判定）。
+  开关/顺序与显隐去重/收起/重置、`dragOvershoot`（拖拽过冲判定）。
 - 运行时链路测试：用最小客户端上下文执行真实的 `apply()`，再渲染注册到
   `shell.leading` 的组件，断言返回按钮出现在「新建会话」之后、会话中隐藏、
   点击调用 `ctx.layout.selectPanel(null)`；开启排序与折叠后收起项进 More、
-  拖拽预览顺序立即反映到工具栏；`apply` 确实注册了展开态 chrome 与设置开关。
+  已提交顺序立即反映到工具栏；`apply` 确实注册了展开态 chrome 与设置开关。
 - 拖拽测试用最小 `document` 替身派发 pointer 事件：过冲判定、指针激活态的
   切换/复原、非 darwin 与右侧栏手柄不接管、监听清理。
 - 回归用例覆盖影子图标的隐藏范围、原生 More 分组与二级区互斥、悬停浮层的
   生命周期、跨组放置的原子提交、菜单收起项拖出后的临时平铺与取消拖动。
+- 0.4.3 新增相同布局零持久化、存储属性访问受限、特殊 id、影子读取失败与重注册、延迟折叠取消、每帧合并测量、组件开关完整清理和图标选中快照测试，共 40 项。
 - 本轮额外用本机 DSH 打包的 React、Menu、PanelMoreMenu 和 PanelRow 组件搭建
   浏览器夹具，验证展开二级区、悬停菜单、拖进/拖出、溢出项移到首位、全收起后
   恢复首项、无效落点与 Esc 取消；完整宿主窗口仍需在安装后确认。
@@ -292,6 +296,7 @@ Node 22 / 24 运行同一套 `node --test`；测试无第三方依赖，不需�
 
 ## 更新记录
 
+- **0.4.3**：拖拽测量按帧合并，相同状态不重复通知或写存储；开关生命周期集中管理，排序关闭时不安装控制器；影子图标只订阅自己的隐藏状态。修复停用 / 失焦后的延迟折叠、存储访问受限、账本读取失败及特殊 id 兼容；移除失效预览、未使用图标与重复包装账本，详见 [排查记录](CODE_REVIEW.md)。
 - **0.4.2**：修复收起项复用图标被误隐藏、二级区与原生 More 浮层互斥、菜单项拖出
   和跨组原子提交；拖动提示对齐工作区原生箭头与线宽。折叠工具栏拖动时平铺全部
   面板，分为显示/隐藏两个区域，支持两区内排序与双向拖放；二级区使用浅灰虚线，
