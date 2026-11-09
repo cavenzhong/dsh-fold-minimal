@@ -36,8 +36,7 @@ const {
   PANEL_SLOT,
   PANEL_SLOTS,
   DRAG_COLLAPSE_OVERSHOOT,
-  LONG_PRESS_MS,
-  LONG_PRESS_SLOP,
+  DRAG_START_DISTANCE,
   LAYOUT_COOKIE,
   dictionaries,
   labelOf,
@@ -466,7 +465,7 @@ test('apply 注册展开态 chrome、插件页组件开关与工具栏 hooks', (
   ]);
 });
 
-test('折叠态工具栏：开启排序与折叠后，收起项进 More，预览顺序生效', () => {
+test('折叠态工具栏：开启排序与折叠后，收起项进 More；存在 preview 快照时按它排序', () => {
   const layout = {
     enabled: true,
     order: ['panel-2', 'panel-0', 'panel-1'],
@@ -689,6 +688,7 @@ function createPanelEnv(platform) {
   };
   const rail = {
     querySelectorAll: () => [railButton],
+    getBoundingClientRect: () => rect,
   };
   const railButton = {
     nodeType: 1,

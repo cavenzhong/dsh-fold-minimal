@@ -59,7 +59,7 @@
   priority `-1`）、拖到最小继续左拖收起、折叠/展开态返回会话按钮。关闭时动态
   撤销 `shell.leading` 注册与拖拽手势，宿主官方按钮立刻回来；展开态返回按钮
   也随之移除。
-- **面板挪位与折叠**（`enabled`，默认关）：v0.4 新增的影子排序、长按拖拽、
+- **面板挪位与折叠**（`enabled`，默认关）：v0.4 新增的影子排序、拖拽换位、
   「更多」chevron/二级区与收起项。关闭时撤销全部影子并移除这些 chrome。
 
 两个组件相互独立：只开「面板挪位与折叠」时，展开侧栏的排序/收起仍可用，
@@ -92,18 +92,20 @@
   组件，纯 order 变化复用同一个包装，避免图标重挂闪烁。
 - 面板条目自带的 `inject` / `store` 会被原样复刻，保证原图标组件的 props 不缺。
 
-### 长按拖拽
+### 拖拽换位（不再长按）
 
 - 每个影子条目外层是 `display:contents` 的 `<span data-dfm-id="…">` 包装，
-  对宿主行做三件事：收起时设 `display:none`、拖拽预览时把顺序写到行的内联
-  CSS `order`、给事件委托提供稳定锚点。
+  对宿主行做两件事：收起时设 `display:none`、给事件委托提供稳定锚点。
 - `installPanelDrag`（展开侧栏）与 `installRailDrag`（折叠工具栏）都在 document
-  上做 `pointerdown` 委托：按住约 360ms、位移不超过 6px 才进入拖拽；进入后
-  按指针 x/y 与各行/图标的中点计算插入位置，期间只更新 store 的 `preview`，
-  松手才 `setOrder` 并重建影子注册。拖拽中给 `<html>` 挂 `data-dfm-row-drag`
-  禁选中、换抓取指针，松手吞掉紧随的一次 click，避免误开面板。
-- 展开侧栏的行顺序预览用宿主行的内联 `order`，不改 DOM；折叠工具栏由本插件
-  渲染，直接用 `panelsInOrder(panels, preview)` 排序。
+  上做 `pointerdown` 委托：按下后**移动超过约 4px 立即进入拖拽**（没有长按计时）；
+  未超过阈值松手仍是普通点击。
+- 拖动期间**不移动、不重排任何宿主行**（避免列表跳动和「更多」位置漂移），
+  只用一条固定定位的蓝色插入线（`--dsw-alias-brand-primary`）标出落点：
+  纵向列表画横线、折叠工具栏画竖线、二级区内也画横线。松手才 `setOrder`
+  并重建影子注册。拖拽中给 `<html>` 挂 `data-dfm-row-drag` 禁选中、换抓取
+  指针，松手吞掉紧随的一次 click，避免误开面板。
+- 「更多」行始终在面板列表最后：它不属于 `sidebar.panellist` 注册项，拖拽
+  与影子注册都不会移动它；拖到「更多」行上时整行高亮，提示松手会收进去。
 
 ### 收进「更多」：二级区
 
@@ -116,7 +118,7 @@
   chevron/容器，避免面板被收起却无法拖回）。容器为空时 `:empty` 隐藏。
 - 收起的面板：影子包装把宿主行设 `display:none`（不占 Tab 序、不改宿主 pin
   状态），并出现在二级区。操作：
-  - 把上面的面板行长按拖进二级区 → 收起；
+  - 把上面的面板行拖进二级区 → 收起；
   - 把二级区里的行拖回主区 → 恢复并按落点插入；
   - 二级区内上下拖 → 调整收起项之间的顺序；
   - 点二级区行 → 打开该面板；底部「恢复默认排序」清空顺序与收起项。
@@ -178,7 +180,7 @@ plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
 | 文件 | 作用 |
 |---|---|
 | `index.js` | Host 半，空实现（bundle 行需要一个包主模块）。 |
-| `client.js` | 浏览器半：`shell.leading` 折叠工具栏（priority `-1`，随「折叠菜单」开关动态注册）、展开态返回按钮注入、`plugins.bundle.config` 的两个组件开关、`sidebar.panellist` 影子注册与长按拖拽、`sidebar.footer.action` 里的 More chevron/二级区/portal、`sidebar.panellist.actions` 的 More 锚点、状态 store 与 cookie 持久化、拖到底继续左拖即收起、clearance 同步。 |
+| `client.js` | 浏览器半：`shell.leading` 折叠工具栏（priority `-1`，随「折叠菜单」开关动态注册）、展开态返回按钮注入、`plugins.bundle.config` 的两个组件开关、`sidebar.panellist` 影子注册与拖拽换位、`sidebar.footer.action` 里的 More chevron/二级区/portal、`sidebar.panellist.actions` 的 More 锚点、状态 store 与 cookie 持久化、拖到底继续左拖即收起、clearance 同步。 |
 | `cordis.patch.yml` | Loader 行 `fold-minimal`。 |
 | `locale/zh.json`、`locale/en.json` | Plugins 页展示用标题/描述。 |
 | `icon.svg` | 插件图标。 |
@@ -258,7 +260,7 @@ pnpm test
   拖拽预览顺序立即反映到工具栏；`apply` 确实注册了展开态 chrome 与设置开关。
 - 拖拽测试用最小 `document` 替身派发 pointer 事件：过冲判定、指针激活态的
   切换/复原、非 darwin 与右侧栏手柄不接管、监听清理。
-- 展开侧栏的 DOM 注入/长按手势依赖真实宿主结构，当前以语法检查、`apply`
+- 展开侧栏的 DOM 注入/拖拽手势依赖真实宿主结构，当前以语法检查、`apply`
   注册断言、拖拽控制器的监听生命周期测试和安装后的 Client Slot 检查覆盖；
   视觉与真实手势需要在实际页面回归。
 
@@ -269,7 +271,7 @@ Node 22 / 24 运行同一套 `node --test`；测试无第三方依赖，不需�
 
 - **0.4.0**：插件详情页新增 2 个组件开关（折叠菜单默认开 / 面板挪位与折叠
   默认关）；展开侧栏新增「返回会话」按钮（收起按钮左侧）；「面板挪位与折叠」
-  用影子注册统一展开/折叠顺序、两处长按拖拽排序、面板拖进「更多」二级区收起
+  用影子注册统一展开/折叠顺序、两处拖拽排序、面板拖进「更多」二级区收起
   并拖回恢复；状态用 host 级 cookie 跨端口持久化。
 - **0.3.0**：面板区固定 4 格，第 5 个面板出现时第 4 格变成「更多」，悬停展开
   其余面板；侧栏拖到最小宽度后继续往左拖，越过阈值时指针切换为「向左收起」、

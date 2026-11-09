@@ -20,7 +20,7 @@
  *    对 `sidebar.panellist` 的每个面板以同 id、更低 priority 做「影子注册」改写
  *    order，宿主的 entriesOfSlot 同 id 取最低 priority，于是展开侧栏、折叠工具栏
  *    与「更多」菜单天然共享同一顺序；影子组件外面包一层带 `data-dfm-id` 的
- *    `display:contents` 包装，用来挂长按拖拽、隐藏宿主行，以及拖拽时的 order 预览。
+ *    `display:contents` 包装，用来挂拖拽、隐藏宿主行，以及给事件委托提供锚点。
  *    展开侧栏「更多」行右侧的 `›` 展开下方缩进二级区，把面板行拖进去即收起。
  *
  * @module dsh-fold-minimal/client
@@ -34,7 +34,7 @@ window.__ModuleLoader__.load({
     /**
      * react-dom 是平台基座模块（与 react 同一张冻结模块表），只用于把二级区
      * portal 进宿主侧栏里我们创建的容器。取不到时退化为不渲染二级区内容，
-     * 排序/长按拖拽/设置开关仍可用。
+     * 排序/拖拽/设置开关仍可用。
      */
     var ReactDOM = null;
     try {
@@ -92,9 +92,11 @@ window.__ModuleLoader__.load({
     var LAYOUT_STORAGE_KEY = 'dsh.fold-minimal.panel-layout.v1';
     var LAYOUT_COOKIE_MAX_AGE = 31536000;
 
-    /** 长按进入拖拽的阈值；未到阈值前移动超过这个距离就当作普通点击/滑动。 */
-    var LONG_PRESS_MS = 360;
-    var LONG_PRESS_SLOP = 6;
+    /**
+     * 拖拽启动阈值（px）：按下后移动超过这个距离就立即进入换位状态并显示
+     * 蓝色插入指示线，不再需要长按等待；未超过则保持普通点击。
+     */
+    var DRAG_START_DISTANCE = 4;
 
     /** 影子组件挂在宿主面板行图标外层的包装标记。 */
     var MARKER_ATTR = 'data-dfm-id';
@@ -137,7 +139,7 @@ window.__ModuleLoader__.load({
       'session.back.label': '返回会话',
       'panels.more': '更多面板',
       'layout.title': '面板挪位与折叠',
-      'layout.description': '0.4 新增：长按拖动面板调整顺序，展开侧栏与折叠工具栏同步；把面板拖进「更多」可收起，再拖回恢复。',
+      'layout.description': '0.4 新增：按住拖动面板调整顺序，蓝色插入线提示落点；展开侧栏与折叠工具栏同步；把面板拖进「更多」可收起，再拖回恢复。',
       'settings.toolbar.title': '折叠菜单',
       'settings.toolbar.desc': '原有功能：侧栏折叠后在窗口左上角显示面板图标；拖到最窄继续左拖可收起；返回会话按钮。',
       'layout.reset': '恢复默认排序',
@@ -154,7 +156,7 @@ window.__ModuleLoader__.load({
       'session.back.label': 'Back to session',
       'panels.more': 'More panels',
       'layout.title': 'Panel reorder & fold',
-      'layout.description': 'New in 0.4: long-press a panel to reorder it; the expanded list and the collapsed toolbar share one order. Drag a panel into More to put it away, and drag it back to restore.',
+      'layout.description': 'New in 0.4: drag a panel to reorder it (a blue insertion line shows the drop position); the expanded list and the collapsed toolbar share one order. Drag a panel into More to put it away, and drag it back to restore.',
       'settings.toolbar.title': 'Collapsed menu',
       'settings.toolbar.desc': 'Original component: maps panel icons to the top-left toolbar when the sidebar is collapsed; dragging past the minimum width collapses it; back-to-session buttons.',
       'layout.reset': 'Reset panel order',
@@ -270,6 +272,14 @@ window.__ModuleLoader__.load({
       'background:var(--dsw-alias-label-primary-foreground);transition:transform .12s ease}',
       '.DFM_switch[aria-checked="false"] .DFM_switchThumb{background:var(--dsw-alias-switch-thumb)}',
       '.DFM_switch[aria-checked="true"] .DFM_switchThumb{transform:translate(16px)}',
+      // 拖拽插入位置指示线：固定定位，横向列表画横线、图标行画竖线。
+      '.DFM_indicator{position:fixed;z-index:99999;pointer-events:none;',
+      'background:var(--dsw-alias-brand-primary,var(--dsw-alias-state-business-primary));border-radius:999px;',
+      'box-shadow:0 0 0 1px var(--dsw-alias-brand-primary,var(--dsw-alias-state-business-primary))}',
+      // 拖到「更多」行上时整行高亮，提示松手会收进去。
+      '[' + MORE_ROW_ATTR + '][' + DROP_ATTR + '="true"]{background:var(--dsw-alias-interactive-bg-hover);',
+      'outline:2px dashed var(--dsw-alias-brand-primary,var(--dsw-alias-state-business-primary));',
+      'outline-offset:-2px;border-radius:var(--dsw-radius-md)}',
       // 拖拽面板行时的全局指针/选区状态。
       'html[' + DRAG_ROOT_ATTR + ']{user-select:none}',
       'html[' + DRAG_ROOT_ATTR + '] *{cursor:grabbing !important}',
@@ -1925,7 +1935,7 @@ window.__ModuleLoader__.load({
       };
     }
 
-    /* ───────────── 展开侧栏：长按拖拽排序 / 拖进二级区收起 ───────────── */
+    /* ───────────── 展开侧栏：拖拽排序 / 拖进二级区收起 ───────────── */
 
     /**
      * 从事件目标向上找最近的带某个属性的元素（含自身）。
@@ -1972,10 +1982,46 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 展开侧栏的长按拖拽：面板行拖拽排序，拖进「更多」二级区收起；
-     * 二级区里的行拖回主区恢复显示，区里上下拖则调整收起项顺序。
-     * 全部通过宿主已渲染行的 `data-dfm-id` 包装与自绘二级区的事件委托完成，
-     * 不在拖拽中途改宿主状态，松手才写 store。
+     * 蓝色插入位置指示线。固定定位在 body 上，拖拽过程中只更新位置、不参与布局，
+     * 所以宿主行与工具栏图标都不会在拖动中跳动。
+     * @returns `{ showVertical, showHorizontal, hide, dispose }`；没有 body 时返回 null。
+     */
+    function createInsertionIndicator() {
+      if (typeof document === 'undefined' || !document.body) return null;
+      var line = document.createElement('div');
+      line.className = 'DFM_indicator';
+      line.setAttribute('aria-hidden', 'true');
+      line.style.display = 'none';
+      document.body.appendChild(line);
+      var show = function (axis, left, top, width, height) {
+        line.setAttribute('data-axis', axis);
+        line.style.left = left + 'px';
+        line.style.top = top + 'px';
+        line.style.width = width + 'px';
+        line.style.height = height + 'px';
+        line.style.display = 'block';
+      };
+      return {
+        showVertical: function (left, width, y) {
+          show('vertical', left, y - 1, width, 2);
+        },
+        showHorizontal: function (x, top, height) {
+          show('horizontal', x - 1, top, 2, height);
+        },
+        hide: function () {
+          line.style.display = 'none';
+        },
+        dispose: function () {
+          if (line.parentNode) line.parentNode.removeChild(line);
+        },
+      };
+    }
+
+    /**
+     * 展开侧栏的拖拽换位：按下后移动超过约 4px 立即进入拖拽（不再长按等待），
+     * 拖动期间列表保持不动，只用一条蓝色插入线提示落点，松手才写 store。
+     * 拖到「更多」行或二级区上松手 = 收起；二级区里的行拖回主区 = 恢复；
+     * 二级区内上下拖 = 调整收起项顺序。
      * @param store - 排序状态 store。
      * @param panelsSource - 当前面板快照（提供生效顺序）。
      * @returns 清理函数。
@@ -1983,15 +2029,14 @@ window.__ModuleLoader__.load({
     function installPanelDrag(store, panelsSource) {
       if (typeof document === 'undefined') return undefined;
       var session = null;
+      var indicator = createInsertionIndicator();
 
       function platformOk() {
         var root = document.documentElement;
         return !!root && root.getAttribute('data-platform') === 'darwin';
       }
 
-      function currentOrder() {
-        var snapshot = store.getSnapshot();
-        if (snapshot.preview !== null) return snapshot.preview;
+      function panelIds() {
         return panelIdsOf(panelsSource.getSnapshot());
       }
 
@@ -2052,34 +2097,150 @@ window.__ModuleLoader__.load({
         return document.querySelector('[' + MORE_ROW_ATTR + ']');
       }
 
-      function setDropHighlight(on) {
+      function rectOf(element) {
+        return element ? element.getBoundingClientRect() : null;
+      }
+
+      function overElement(element, x, y) {
+        var rect = rectOf(element);
+        return rect ? rectContains(rect, x, y) : false;
+      }
+
+      function setTrayHighlight(on) {
         var tray = trayElement();
         if (!tray) return;
         if (on) tray.setAttribute(DROP_ATTR, 'true');
         else tray.removeAttribute(DROP_ATTR);
       }
 
-      function schedulePreviewClear() {
-        var clear = function () {
-          if (store.getSnapshot().preview !== null) store.setPreview(null);
-        };
-        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(clear);
-        else setTimeout(clear, 0);
+      function setMoreHighlight(on) {
+        var more = moreRowElement();
+        if (!more) return;
+        if (on) more.setAttribute(DROP_ATTR, 'true');
+        else more.removeAttribute(DROP_ATTR);
       }
 
-      function cancelTimer() {
-        if (session && session.timer !== null) {
-          clearTimeout(session.timer);
-          session.timer = null;
+      function clearHighlights() {
+        setTrayHighlight(false);
+        setMoreHighlight(false);
+        if (indicator) indicator.hide();
+      }
+
+      /** 主区插入点：index 是「去掉被拖行后」序列里的落点，lineY 是蓝线位置。 */
+      function mainTargetAt(y, draggedId) {
+        var markers = mainMarkers();
+        if (!markers.length) return null;
+        var without = [];
+        for (var index = 0; index < markers.length; index += 1) {
+          if (markers[index].id !== draggedId) without.push(markers[index]);
         }
+        var target = 0;
+        for (var scan = 0; scan < without.length; scan += 1) {
+          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
+        }
+        var lineY;
+        if (without.length === 0) {
+          lineY = markers[0].rect.top;
+        } else if (target === 0) {
+          lineY = without[0].rect.top - 2;
+        } else if (target === without.length) {
+          lineY = without[without.length - 1].rect.bottom + 2;
+        } else {
+          lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
+        }
+        return {
+          index: target,
+          lineY: lineY,
+          left: markers[0].rect.left,
+          width: markers[0].rect.width,
+        };
+      }
+
+      /** 二级区插入点。 */
+      function trayTargetAt(y, draggedId) {
+        var rows = trayRows();
+        if (!rows.length) return null;
+        var without = [];
+        for (var index = 0; index < rows.length; index += 1) {
+          if (rows[index].id !== draggedId) without.push(rows[index]);
+        }
+        var target = 0;
+        for (var scan = 0; scan < without.length; scan += 1) {
+          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
+        }
+        var lineY;
+        if (without.length === 0) {
+          lineY = rows[0].rect.top + rows[0].rect.height / 2;
+        } else if (target === 0) {
+          lineY = without[0].rect.top - 2;
+        } else if (target === without.length) {
+          lineY = without[without.length - 1].rect.bottom + 2;
+        } else {
+          lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
+        }
+        return {
+          index: target,
+          lineY: lineY,
+          left: rows[0].rect.left,
+          width: rows[0].rect.width,
+        };
+      }
+
+      /** 指针是否落在面板列表的主区（含行间空隙；全收起时以「更多」为下界）。 */
+      function overMainZone(y) {
+        var markers = mainMarkers();
+        if (markers.length > 0) {
+          return (
+            y >= markers[0].rect.top - 18 && y <= markers[markers.length - 1].rect.bottom + 18
+          );
+        }
+        var more = moreRowElement();
+        var moreRect = rectOf(more);
+        return !!moreRect && y < moreRect.top;
+      }
+
+      function commitMainReorder(id, index) {
+        var all = panelIds();
+        var hidden = hiddenIds();
+        var hiddenSet = hiddenSetOf(hidden);
+        var visible = all.filter(function (panelId) {
+          return !hiddenSet[panelId];
+        });
+        var nextVisible = moveVisibleOrder(visible, id, index);
+        store.setOrder(replaceVisibleOrder(all, hidden, nextVisible));
+      }
+
+      function commitTrayReorder(id, index) {
+        var all = panelIds();
+        var hidden = hiddenIds();
+        var hiddenSet = hiddenSetOf(hidden);
+        var hiddenOrder = all.filter(function (panelId) {
+          return hiddenSet[panelId];
+        });
+        var nextHidden = moveVisibleOrder(hiddenOrder, id, index);
+        store.setOrder(replaceHiddenOrder(all, hidden, nextHidden));
+      }
+
+      function restoreFromTray(id, index) {
+        var snapshot = store.getSnapshot();
+        var all = panelIds();
+        var beforeHidden = hiddenSetOf(snapshot.hidden);
+        var visible = all.filter(function (panelId) {
+          return !beforeHidden[panelId];
+        });
+        var nextVisible = moveVisibleOrder(visible, id, index);
+        var nextHidden = snapshot.hidden.filter(function (panelId) {
+          return panelId !== id;
+        });
+        store.setHidden(nextHidden);
+        store.setOrder(replaceVisibleOrder(all, nextHidden, nextVisible));
       }
 
       function resetSession() {
-        cancelTimer();
         document.removeEventListener('pointermove', onPointerMove, true);
         document.removeEventListener('pointerup', onPointerUp, true);
         document.removeEventListener('pointercancel', onPointerCancel, true);
-        setDropHighlight(false);
+        clearHighlights();
         if (typeof document !== 'undefined') {
           document.documentElement.removeAttribute(DRAG_ROOT_ATTR);
         }
@@ -2089,48 +2250,53 @@ window.__ModuleLoader__.load({
         session = null;
       }
 
-      function activate() {
+      function updateDrag(x, y) {
         if (!session) return;
-        session.timer = null;
-        session.active = true;
-        document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
-        if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
-        session.preview = currentOrder();
-        store.setPreview(session.preview);
-      }
+        var snapshot = store.getSnapshot();
+        var tray = trayElement();
+        var overTray = overElement(tray, x, y);
+        var more = moreRowElement();
+        var overMore = overElement(more, x, y);
+        clearHighlights();
 
-      function updateMainPreview(y, id) {
-        var markers = mainMarkers();
-        var index = 0;
-        for (var scan = 0; scan < markers.length; scan += 1) {
-          if (markers[scan].id === id) continue;
-          if (y > markers[scan].rect.top + markers[scan].rect.height / 2) index += 1;
+        if (session.fromTray) {
+          if (overTray) {
+            var trayTarget = trayTargetAt(y, session.id);
+            if (trayTarget && indicator) {
+              indicator.showVertical(trayTarget.left, trayTarget.width, trayTarget.lineY);
+            }
+            return;
+          }
+          if (overMainZone(y)) {
+            var restoreTarget = mainTargetAt(y, session.id);
+            if (restoreTarget && indicator) {
+              indicator.showVertical(restoreTarget.left, restoreTarget.width, restoreTarget.lineY);
+            }
+          }
+          return;
         }
-        var all = currentOrder();
-        var hidden = hiddenIds();
-        var hiddenSet = hiddenSetOf(hidden);
-        var visible = all.filter(function (panelId) {
-          return !hiddenSet[panelId];
-        });
-        var nextVisible = moveVisibleOrder(visible, id, index);
-        store.setPreview(replaceVisibleOrder(all, hidden, nextVisible));
-      }
 
-      function updateTrayPreview(y, id) {
-        var rows = trayRows();
-        var index = 0;
-        for (var scan = 0; scan < rows.length; scan += 1) {
-          if (rows[scan].id === id) continue;
-          if (y > rows[scan].rect.top + rows[scan].rect.height / 2) index += 1;
+        // 拖到「更多」行或已展开的二级区上：提示松手会收起。
+        if (overTray) {
+          setTrayHighlight(true);
+          return;
         }
-        var all = currentOrder();
-        var hidden = hiddenIds();
-        var hiddenSet = hiddenSetOf(hidden);
-        var hiddenOrder = all.filter(function (panelId) {
-          return hiddenSet[panelId];
-        });
-        var nextHidden = moveVisibleOrder(hiddenOrder, id, index);
-        store.setPreview(replaceHiddenOrder(all, hidden, nextHidden));
+        if (overMore) {
+          setMoreHighlight(true);
+          if (!snapshot.trayOpen) store.setTrayOpen(true);
+          return;
+        }
+        // 靠近「更多」时自动展开二级区；这里只在指针仍在主区内时画插入线。
+        if (!snapshot.trayOpen && overMainZone(y)) {
+          var moreRect = rectOf(more);
+          if (moreRect && y > moreRect.top - 44) store.setTrayOpen(true);
+        }
+        if (overMainZone(y)) {
+          var target = mainTargetAt(y, session.id);
+          if (target && indicator) {
+            indicator.showVertical(target.left, target.width, target.lineY);
+          }
+        }
       }
 
       function onPointerMove(event) {
@@ -2138,30 +2304,15 @@ window.__ModuleLoader__.load({
         if (!session.active) {
           var dx = event.clientX - session.startX;
           var dy = event.clientY - session.startY;
-          if (Math.abs(dx) + Math.abs(dy) > LONG_PRESS_SLOP) resetSession();
-          return;
+          if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
+          session.active = true;
+          document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
+          if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
+          if (event.cancelable) event.preventDefault();
+        } else if (event.cancelable) {
+          event.preventDefault();
         }
-        if (event.cancelable) event.preventDefault();
-        var tray = trayElement();
-        var overTray = tray ? rectContains(tray.getBoundingClientRect(), event.clientX, event.clientY) : false;
-        if (!session.fromTray) {
-          if (!overTray) {
-            // 拖着面板靠近「更多」时自动展开二级区，松手即可放进去。
-            var more = moreRowElement();
-            if (
-              !store.getSnapshot().trayOpen &&
-              more &&
-              rectContains(more.getBoundingClientRect(), event.clientX, event.clientY)
-            ) {
-              store.setTrayOpen(true);
-            }
-          }
-          session.hideTarget = overTray;
-          setDropHighlight(overTray);
-          if (!overTray) updateMainPreview(event.clientY, session.id);
-        } else if (overTray) {
-          updateTrayPreview(event.clientY, session.id);
-        }
+        updateDrag(event.clientX, event.clientY);
       }
 
       function onPointerUp(event) {
@@ -2169,68 +2320,36 @@ window.__ModuleLoader__.load({
         var drag = session;
         var x = event.clientX;
         var y = event.clientY;
-        var tray = trayElement();
-        var overTray = tray ? rectContains(tray.getBoundingClientRect(), x, y) : false;
-        var markers = mainMarkers();
-        var more = moreRowElement();
-        var overMain = !overTray && more ? y < more.getBoundingClientRect().top : markers.length > 0;
         var active = drag.active;
+        var overTray = overElement(trayElement(), x, y);
+        var overMore = overElement(moreRowElement(), x, y);
         resetSession();
-        if (!active) {
-          if (store.getSnapshot().preview !== null) store.setPreview(null);
-          return;
-        }
+        if (!active) return;
         suppressNextClick();
         if (drag.fromTray) {
           if (overTray) {
-            var foldedPreview = store.getSnapshot().preview;
-            if (foldedPreview !== null) {
-              store.setOrder(foldedPreview);
-              schedulePreviewClear();
-            } else {
-              store.setPreview(null);
-            }
-          } else if (overMain) {
-            var index = 0;
-            for (var scan = 0; scan < markers.length; scan += 1) {
-              if (y > markers[scan].rect.top + markers[scan].rect.height / 2) index += 1;
-            }
-            var snapshot = store.getSnapshot();
-            var all = currentOrder();
-            var beforeHidden = hiddenSetOf(snapshot.hidden);
-            var visible = all.filter(function (panelId) {
-              return !beforeHidden[panelId];
-            });
-            var nextVisible = moveVisibleOrder(visible, drag.id, index);
-            var nextHidden = snapshot.hidden.filter(function (panelId) {
-              return panelId !== drag.id;
-            });
-            store.setHidden(nextHidden);
-            store.setOrder(replaceVisibleOrder(all, nextHidden, nextVisible));
-            store.setPreview(null);
-          } else {
-            store.setPreview(null);
+            var trayTarget = trayTargetAt(y, drag.id);
+            if (trayTarget) commitTrayReorder(drag.id, trayTarget.index);
+          } else if (overMainZone(y)) {
+            var restoreTarget = mainTargetAt(y, drag.id);
+            // 全部面板都收起时主区没有行可参考，恢复到可见列表第 0 位。
+            restoreFromTray(drag.id, restoreTarget ? restoreTarget.index : 0);
           }
           return;
         }
-        if (overTray) {
+        if (overTray || overMore) {
           store.hidePanel(drag.id);
-          store.setPreview(null);
           return;
         }
-        var preview = store.getSnapshot().preview;
-        if (preview !== null) {
-          store.setOrder(preview);
-          schedulePreviewClear();
-        } else {
-          store.setPreview(null);
+        if (overMainZone(y)) {
+          var target = mainTargetAt(y, drag.id);
+          if (target) commitMainReorder(drag.id, target.index);
         }
       }
 
       function onPointerCancel(event) {
         if (!session || event.pointerId !== session.pointerId) return;
         resetSession();
-        if (store.getSnapshot().preview !== null) store.setPreview(null);
       }
 
       function onPointerDown(event) {
@@ -2245,9 +2364,7 @@ window.__ModuleLoader__.load({
         if (!trayRow && !marker) return;
         var row = trayRow || marker.closest('button');
         if (!row) return;
-        var id = trayRow
-          ? row.getAttribute(TRAY_ID_ATTR)
-          : marker.getAttribute(MARKER_ATTR);
+        var id = trayRow ? row.getAttribute(TRAY_ID_ATTR) : marker.getAttribute(MARKER_ATTR);
         if (!id) return;
         session = {
           pointerId: event.pointerId,
@@ -2257,11 +2374,7 @@ window.__ModuleLoader__.load({
           startX: event.clientX,
           startY: event.clientY,
           active: false,
-          hideTarget: false,
-          preview: null,
-          timer: null,
         };
-        session.timer = setTimeout(activate, LONG_PRESS_MS);
         document.addEventListener('pointermove', onPointerMove, true);
         document.addEventListener('pointerup', onPointerUp, true);
         document.addEventListener('pointercancel', onPointerCancel, true);
@@ -2270,19 +2383,16 @@ window.__ModuleLoader__.load({
       document.addEventListener('pointerdown', onPointerDown, true);
       return function () {
         resetSession();
-        if (typeof document !== 'undefined' && store.getSnapshot().preview !== null) {
-          store.setPreview(null);
-        }
+        if (indicator) indicator.dispose();
         document.removeEventListener('pointerdown', onPointerDown, true);
       };
     }
 
-    /* ───────────── 折叠工具栏：长按拖拽排序（与展开侧栏同序）───────────── */
+    /* ───────────── 折叠工具栏：拖拽排序（与展开侧栏同序）───────────── */
 
     /**
-     * 折叠工具栏上的长按拖拽：在图标之间左右拖拽，松手写回同一份顺序。
-     * 工具栏图标由本插件渲染，事件目标是带 `data-panel-id` 的按钮；
-     * 排序结果仍交给影子注册同步到展开侧栏。
+     * 折叠工具栏上的拖拽换位：移动超过约 4px 立即进入换位，拖动时图标不跳动，
+     * 用一条蓝色竖线提示落点，松手才写回同一份顺序。
      * @param store - 排序状态 store。
      * @param panelsSource - 当前面板快照。
      * @returns 清理函数。
@@ -2290,20 +2400,19 @@ window.__ModuleLoader__.load({
     function installRailDrag(store, panelsSource) {
       if (typeof document === 'undefined') return undefined;
       var session = null;
+      var indicator = createInsertionIndicator();
 
       function platformOk() {
         var root = document.documentElement;
         return !!root && root.getAttribute('data-platform') === 'darwin';
       }
 
-      function currentOrder() {
-        var snapshot = store.getSnapshot();
-        if (snapshot.preview !== null) return snapshot.preview;
-        return panelIdsOf(panelsSource.getSnapshot());
+      function railElement() {
+        return document.querySelector('[data-fold-minimal="rail"]');
       }
 
       function railButtons() {
-        var rail = document.querySelector('[data-fold-minimal="rail"]');
+        var rail = railElement();
         if (!rail) return [];
         var nodes = rail.querySelectorAll('[data-fold-minimal="panel"][data-panel-id]');
         var result = [];
@@ -2318,44 +2427,50 @@ window.__ModuleLoader__.load({
         return result;
       }
 
-      function reset() {
-        if (session && session.timer !== null) {
-          clearTimeout(session.timer);
-          session.timer = null;
+      function targetAt(x, draggedId) {
+        var buttons = railButtons();
+        if (!buttons.length) return null;
+        var without = [];
+        for (var index = 0; index < buttons.length; index += 1) {
+          if (buttons[index].id !== draggedId) without.push(buttons[index]);
         }
+        var target = 0;
+        for (var scan = 0; scan < without.length; scan += 1) {
+          if (x > without[scan].rect.left + without[scan].rect.width / 2) target += 1;
+        }
+        var lineX;
+        if (without.length === 0) {
+          lineX = buttons[0].rect.left + buttons[0].rect.width / 2;
+        } else if (target === 0) {
+          lineX = without[0].rect.left - 2;
+        } else if (target === without.length) {
+          lineX = without[without.length - 1].rect.right + 2;
+        } else {
+          lineX = (without[target - 1].rect.right + without[target].rect.left) / 2;
+        }
+        var first = buttons[0].rect;
+        return {
+          index: target,
+          lineX: lineX,
+          top: first.top - 2,
+          height: first.height + 4,
+        };
+      }
+
+      function resetSession() {
         document.removeEventListener('pointermove', onPointerMove, true);
         document.removeEventListener('pointerup', onPointerUp, true);
         document.removeEventListener('pointercancel', onPointerCancel, true);
+        if (indicator) indicator.hide();
         document.documentElement.removeAttribute(DRAG_ROOT_ATTR);
-        if (session && session.row && session.row.classList) session.row.classList.remove('DFM_rowDragging');
+        if (session && session.row && session.row.classList) {
+          session.row.classList.remove('DFM_rowDragging');
+        }
         session = null;
       }
 
-      function activate() {
-        if (!session) return;
-        session.timer = null;
-        session.active = true;
-        document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
-        if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
-        store.setPreview(currentOrder());
-      }
-
-      function onPointerMove(event) {
-        if (!session || event.pointerId !== session.pointerId) return;
-        if (!session.active) {
-          var dx = event.clientX - session.startX;
-          var dy = event.clientY - session.startY;
-          if (Math.abs(dx) + Math.abs(dy) > LONG_PRESS_SLOP) reset();
-          return;
-        }
-        if (event.cancelable) event.preventDefault();
-        var buttons = railButtons();
-        var index = 0;
-        for (var scan = 0; scan < buttons.length; scan += 1) {
-          if (buttons[scan].id === session.id) continue;
-          if (event.clientX > buttons[scan].rect.left + buttons[scan].rect.width / 2) index += 1;
-        }
-        var all = currentOrder();
+      function commitReorder(id, index) {
+        var all = panelIdsOf(panelsSource.getSnapshot());
         var hidden = store.getSnapshot().hidden;
         var hiddenSet = {};
         for (var hiddenIndex = 0; hiddenIndex < hidden.length; hiddenIndex += 1) {
@@ -2364,35 +2479,52 @@ window.__ModuleLoader__.load({
         var visible = all.filter(function (panelId) {
           return !hiddenSet[panelId];
         });
-        store.setPreview(replaceVisibleOrder(all, hidden, moveVisibleOrder(visible, session.id, index)));
+        store.setOrder(replaceVisibleOrder(all, hidden, moveVisibleOrder(visible, id, index)));
+      }
+
+      function onPointerMove(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        if (!session.active) {
+          var dx = event.clientX - session.startX;
+          var dy = event.clientY - session.startY;
+          if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
+          session.active = true;
+          document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
+          if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
+          if (event.cancelable) event.preventDefault();
+        } else if (event.cancelable) {
+          event.preventDefault();
+        }
+        var target = targetAt(event.clientX, session.id);
+        if (target && indicator) {
+          indicator.showHorizontal(target.lineX, target.top, target.height);
+        }
+      }
+
+      function insideRail(x, y) {
+        var rail = railElement();
+        if (!rail) return false;
+        var rect = rail.getBoundingClientRect();
+        return x >= rect.left - 24 && x <= rect.right + 24 && y >= rect.top - 16 && y <= rect.bottom + 16;
       }
 
       function onPointerUp(event) {
         if (!session || event.pointerId !== session.pointerId) return;
-        var active = session.active;
-        var preview = store.getSnapshot().preview;
-        reset();
-        if (!active) {
-          if (preview !== null) store.setPreview(null);
-          return;
-        }
+        var drag = session;
+        var x = event.clientX;
+        var y = event.clientY;
+        var active = drag.active;
+        var target = active ? targetAt(x, drag.id) : null;
+        var inside = insideRail(x, y);
+        resetSession();
+        if (!active) return;
         suppressNextClick();
-        if (preview !== null) {
-          store.setOrder(preview);
-          var clear = function () {
-            if (store.getSnapshot().preview !== null) store.setPreview(null);
-          };
-          if (typeof requestAnimationFrame === 'function') requestAnimationFrame(clear);
-          else setTimeout(clear, 0);
-        } else {
-          store.setPreview(null);
-        }
+        if (target && inside) commitReorder(drag.id, target.index);
       }
 
       function onPointerCancel(event) {
         if (!session || event.pointerId !== session.pointerId) return;
-        reset();
-        if (store.getSnapshot().preview !== null) store.setPreview(null);
+        resetSession();
       }
 
       function onPointerDown(event) {
@@ -2414,9 +2546,7 @@ window.__ModuleLoader__.load({
           startX: event.clientX,
           startY: event.clientY,
           active: false,
-          timer: null,
         };
-        session.timer = setTimeout(activate, LONG_PRESS_MS);
         document.addEventListener('pointermove', onPointerMove, true);
         document.addEventListener('pointerup', onPointerUp, true);
         document.addEventListener('pointercancel', onPointerCancel, true);
@@ -2424,11 +2554,12 @@ window.__ModuleLoader__.load({
 
       document.addEventListener('pointerdown', onPointerDown, true);
       return function () {
-        reset();
-        if (store.getSnapshot().preview !== null) store.setPreview(null);
+        resetSession();
+        if (indicator) indicator.dispose();
         document.removeEventListener('pointerdown', onPointerDown, true);
       };
     }
+
 
     /* ──────────────────────────── 工具栏 ──────────────────────────── */
 
@@ -2616,7 +2747,7 @@ window.__ModuleLoader__.load({
         });
       }, 'fold-minimal: panel layout ledger');
 
-      // 两处长按拖拽（展开侧栏行 / 折叠工具栏图标）共用一个状态 store。
+      // 两处拖拽（展开侧栏行 / 折叠工具栏图标）共用一个状态 store。
       ctx.effect(function () {
         return installPanelDrag(layout, panels.source);
       }, 'fold-minimal: expanded panel drag');
@@ -2808,6 +2939,8 @@ window.__ModuleLoader__.load({
           };
         });
       }, 'fold-minimal: more anchor');
+
+
     }
 
     return {
@@ -2820,8 +2953,7 @@ window.__ModuleLoader__.load({
         PANEL_SLOT: PANEL_SLOT,
         PANEL_SLOTS: PANEL_SLOTS,
         DRAG_COLLAPSE_OVERSHOOT: DRAG_COLLAPSE_OVERSHOOT,
-        LONG_PRESS_MS: LONG_PRESS_MS,
-        LONG_PRESS_SLOP: LONG_PRESS_SLOP,
+        DRAG_START_DISTANCE: DRAG_START_DISTANCE,
         LAYOUT_COOKIE: LAYOUT_COOKIE,
         dictionaries: { zh: zh, en: en },
         labelOf: labelOf,
