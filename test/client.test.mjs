@@ -382,6 +382,7 @@ test('面板排序 store：开关/顺序/收起/预览/重置', () => {
     order: ['b'],
     hidden: ['a'],
     trayOpen: false,
+    dragActive: false,
     preview: null,
   });
   let notifications = 0;
@@ -405,6 +406,10 @@ test('面板排序 store：开关/顺序/收起/预览/重置', () => {
   assert.equal(notifications, before, '相同预览不应触发重渲染');
   store.setTrayOpen(true);
   assert.equal(store.getSnapshot().trayOpen, true);
+  store.setDragActive(true);
+  assert.equal(store.getSnapshot().dragActive, true);
+  store.setDragActive(false);
+  assert.equal(store.getSnapshot().dragActive, false);
   store.reset();
   assert.deepEqual(store.getSnapshot().order, []);
   assert.deepEqual(store.getSnapshot().hidden, []);
@@ -500,6 +505,48 @@ test('折叠态工具栏：开启排序与折叠后，收起项进 More；存在
     during.map((element) => element.props.panel.id),
     ['panel-0', 'panel-2'],
     '拖拽预览顺序应立即反映到工具栏',
+  );
+});
+
+test('折叠态工具栏：拖拽期间所有未收起面板临时平铺，More 仍在最后', () => {
+  const layout = {
+    enabled: true,
+    toolbarEnabled: true,
+    order: [],
+    hidden: ['panel-5'],
+    trayOpen: false,
+    dragActive: true,
+    preview: null,
+  };
+  const panels = fakePanels(6);
+  const elements = flatten(renderRail({ activePanelId: null }, panels, layout).tree);
+  const buttons = elements.filter((element) => element.props.panel !== undefined);
+  assert.deepEqual(
+    buttons.map((element) => element.props.panel.id),
+    ['panel-0', 'panel-1', 'panel-2', 'panel-3', 'panel-4'],
+    '拖拽中应平铺所有未收起的面板',
+  );
+  const overflow = elements.find(
+    (element) => typeof element.type === 'function' && Array.isArray(element.props.hiddenPanels),
+  );
+  assert.ok(overflow, '仍有收起项时应保留 More');
+  assert.deepEqual(
+    overflow.props.panels,
+    [],
+    '平铺时没有溢出的面板',
+  );
+  assert.deepEqual(
+    overflow.props.hiddenPanels.map((panel) => panel.id),
+    ['panel-5'],
+  );
+
+  const idle = flatten(
+    renderRail({ activePanelId: null }, panels, { ...layout, dragActive: false }).tree,
+  ).filter((element) => element.props.panel !== undefined);
+  assert.deepEqual(
+    idle.map((element) => element.props.panel.id),
+    ['panel-0', 'panel-1', 'panel-2'],
+    '松手后恢复 3 个图标 + More',
   );
 });
 

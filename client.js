@@ -626,6 +626,7 @@ window.__ModuleLoader__.load({
         order: prefs.order,
         hidden: prefs.hidden,
         trayOpen: false,
+        dragActive: false,
         preview: null,
       };
       var listeners = [];
@@ -640,6 +641,7 @@ window.__ModuleLoader__.load({
           order: snapshot.order,
           hidden: snapshot.hidden,
           trayOpen: snapshot.trayOpen,
+          dragActive: snapshot.dragActive,
           preview: snapshot.preview,
         };
         for (var key in changes) {
@@ -711,6 +713,11 @@ window.__ModuleLoader__.load({
         },
         setTrayOpen: function (open) {
           patch({ trayOpen: open === true }, false);
+        },
+        /** 拖拽活跃标记（不持久化）：折叠工具栏据此临时把全部图标平铺。 */
+        setDragActive: function (active) {
+          if (snapshot.dragActive === (active === true)) return;
+          patch({ dragActive: active === true }, false);
         },
         hidePanel: function (id) {
           if (snapshot.hidden.indexOf(id) !== -1) return;
@@ -2247,6 +2254,7 @@ window.__ModuleLoader__.load({
         if (session && session.row && session.row.classList) {
           session.row.classList.remove('DFM_rowDragging');
         }
+        store.setDragActive(false);
         session = null;
       }
 
@@ -2306,6 +2314,7 @@ window.__ModuleLoader__.load({
           var dy = event.clientY - session.startY;
           if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
           session.active = true;
+          store.setDragActive(true);
           document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
           if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
           if (event.cancelable) event.preventDefault();
@@ -2339,6 +2348,8 @@ window.__ModuleLoader__.load({
         }
         if (overTray || overMore) {
           store.hidePanel(drag.id);
+          // 保证松手后二级区展开，用户马上能看到拖进去的项。
+          store.setTrayOpen(true);
           return;
         }
         if (overMainZone(y)) {
@@ -2361,10 +2372,17 @@ window.__ModuleLoader__.load({
         if (!target || typeof target.closest !== 'function') return;
         var trayRow = closestMarked(target, TRAY_ID_ATTR);
         var marker = trayRow ? null : closestMarked(target, MARKER_ATTR);
-        if (!trayRow && !marker) return;
-        var row = trayRow || marker.closest('button');
+        // 图标外层有 data-dfm-id 包装；整行其他地方用影子组件给宿主行打的
+        // data-dfm-row-id 兜底，这样点行内任意位置（标题、空白）都能拖。
+        var hostRow = trayRow || marker ? null : target.closest('[data-dfm-row-id]');
+        if (!trayRow && !marker && !hostRow) return;
+        var row = trayRow || (marker ? marker.closest('button') : hostRow);
         if (!row) return;
-        var id = trayRow ? row.getAttribute(TRAY_ID_ATTR) : marker.getAttribute(MARKER_ATTR);
+        var id = trayRow
+          ? row.getAttribute(TRAY_ID_ATTR)
+          : marker
+            ? marker.getAttribute(MARKER_ATTR)
+            : row.getAttribute('data-dfm-row-id');
         if (!id) return;
         session = {
           pointerId: event.pointerId,
@@ -2466,6 +2484,7 @@ window.__ModuleLoader__.load({
         if (session && session.row && session.row.classList) {
           session.row.classList.remove('DFM_rowDragging');
         }
+        store.setDragActive(false);
         session = null;
       }
 
@@ -2489,6 +2508,7 @@ window.__ModuleLoader__.load({
           var dy = event.clientY - session.startY;
           if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
           session.active = true;
+          store.setDragActive(true);
           document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
           if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
           if (event.cancelable) event.preventDefault();
@@ -2604,7 +2624,22 @@ window.__ModuleLoader__.load({
           : null;
       var effectivePanels = enabled && orderSource ? panelsInOrder(panels, orderSource) : panels;
       var split = splitPanels(effectivePanels, hiddenIds);
-      var needsMore = split.overflow.length > 0 || split.hidden.length > 0;
+      // 拖拽期间把（未收起的）所有面板临时一行平铺，方便拖到任意位置；
+      // 松手后回到正常的 4 格 + 更多规则。
+      var flattenRail = enabled && layoutState.dragActive === true;
+      var visiblePanels = split.visible;
+      var overflowPanels = split.overflow;
+      if (flattenRail) {
+        var hiddenSet = {};
+        for (var hiddenIndex = 0; hiddenIndex < hiddenIds.length; hiddenIndex += 1) {
+          hiddenSet[hiddenIds[hiddenIndex]] = true;
+        }
+        visiblePanels = effectivePanels.filter(function (panel) {
+          return !hiddenSet[panel.id];
+        });
+        overflowPanels = [];
+      }
+      var needsMore = overflowPanels.length > 0 || split.hidden.length > 0;
 
       var children = [
         h(
@@ -2622,11 +2657,11 @@ window.__ModuleLoader__.load({
 
       if (effectivePanels.length > 0) {
         children.push(h(Divider, { key: 'rail:divider-panels' }));
-        for (var index = 0; index < split.visible.length; index += 1) {
+        for (var index = 0; index < visiblePanels.length; index += 1) {
           children.push(
             h(PanelButton, {
-              key: 'panel:' + split.visible[index].id,
-              panel: split.visible[index],
+              key: 'panel:' + visiblePanels[index].id,
+              panel: visiblePanels[index],
               selectPanel: props.selectPanel,
               trackEntryClick: props.trackEntryClick,
               usePanelInfo: usePanelInfo,
@@ -2637,7 +2672,7 @@ window.__ModuleLoader__.load({
           children.push(
             h(PanelOverflowMenu, {
               key: 'rail:more-panels',
-              panels: split.overflow,
+              panels: overflowPanels,
               hiddenPanels: split.hidden,
               t: t,
               usePanelInfo: usePanelInfo,
