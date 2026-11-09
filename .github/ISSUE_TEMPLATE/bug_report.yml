@@ -1,0 +1,70 @@
+name: Bug 报告
+description: 反馈折叠工具栏、拖拽收起、返回会话，或「排序与折叠」的问题
+title: '[Bug] '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。截图或录屏能大幅缩短排查时间；提交前可以先看看 [常见问题](https://github.com/cavenzhong/dsh-fold-minimal#常见问题)。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述
+      description: 发生了什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 折叠左侧栏
+        2. 点击 …
+        3. 看到 …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+      description: 你原本期望发生什么？
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 版本
+      description: 在 DSH → 关于里查看
+      placeholder: 0.2.2-rc.1
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      description: 在 DSH → 插件里查看
+      placeholder: 0.4.0
+    validations:
+      required: true
+
+  - type: input
+    id: panels
+    attributes:
+      label: 左侧面板列表
+      description: 折叠态工具栏里有哪些面板？
+      placeholder: 插件、Obsidian MEMO、自动化任务……
+
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      description: macOS 版本、窗口宽度、浅色 / 深色主题
+
+  - type: textarea
+    id: media
+    attributes:
+      label: 截图 / 录屏 / 其他信息

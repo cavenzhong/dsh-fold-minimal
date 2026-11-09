@@ -36,15 +36,30 @@ const {
   PANEL_SLOT,
   PANEL_SLOTS,
   DRAG_COLLAPSE_OVERSHOOT,
+  LONG_PRESS_MS,
+  LONG_PRESS_SLOP,
+  LAYOUT_COOKIE,
   dictionaries,
   labelOf,
   buildPanels,
   samePanels,
   splitPanels,
+  mergePanelOrder,
+  moveVisibleOrder,
+  replaceVisibleOrder,
+  replaceHiddenOrder,
+  panelsInOrder,
+  panelIdsOf,
+  sanitizeLayoutPrefs,
+  createPanelLayoutStore,
   dragOvershoot,
   installDragCollapse,
+  installPanelDrag,
+  installRailDrag,
   isPanelActive,
 } = exports.__test;
+
+const EMPTY_LAYOUT = { enabled: false, order: [], hidden: [], trayOpen: false, preview: null };
 
 function makeCtx(entries) {
   return { slots: { entriesOfSlot: (name) => (name === PANEL_SLOT ? entries : []) } };
@@ -66,9 +81,16 @@ test('中英文语言表键集合一致且都有文案', () => {
     'session.new.label',
     'session.back.label',
     'panels.more',
+    'layout.title',
+    'layout.description',
+    'layout.reset',
+    'tray.label',
+    'tray.empty',
+    'tray.expand',
+    'tray.collapse',
   ]) {
-    assert.ok(dictionaries.zh[key]);
-    assert.ok(dictionaries.en[key]);
+    assert.ok(dictionaries.zh[key], `缺中文文案：${key}`);
+    assert.ok(dictionaries.en[key], `缺英文文案：${key}`);
   }
 });
 
@@ -82,7 +104,7 @@ test('isPanelActive 只在主区域被全局面板占用时为真', () => {
  * 用最小客户端上下文跑一遍真实的 apply()，再渲染它注册到 shell.leading 的组件。
  * 覆盖 apply → slot 注册 → inject → LeadingRail 这条运行时链路（不需要 DOM）。
  */
-function renderRail(panelInfo, panels = []) {
+function renderRail(panelInfo, panels = [], layoutSnapshot = EMPTY_LAYOUT) {
   const selections = [];
   const registered = [];
   const ctx = {
@@ -92,6 +114,7 @@ function renderRail(panelInfo, panels = []) {
       subscribe: () => () => {},
     },
     slots: {
+      entries: () => [],
       entriesOfSlot: () => [],
       subscribe: () => () => {},
       inject: (_slot, callback) => callback(),
@@ -117,8 +140,9 @@ function renderRail(panelInfo, panels = []) {
     usePanelInfo: (selector) => selector(panelInfo),
     usePanels: (selector) => selector(panels),
     useShortcuts: () => undefined,
+    useLayout: (selector) => selector(layoutSnapshot),
   });
-  return { tree, selections };
+  return { tree, selections, registered };
 }
 
 function flatten(node, out = []) {
@@ -252,6 +276,189 @@ test('splitPanels：第 5 个出现时，第 4 格让给「更多」，被顶掉
   assert.deepEqual(
     seven.overflow.map((panel) => panel.id),
     ['panel-3', 'panel-4', 'panel-5', 'panel-6'],
+  );
+});
+
+test('splitPanels：开启排序与折叠后，被收起的面板进「hidden」，More 始终保留入口', () => {
+  const three = splitPanels(fakePanels(3), ['panel-1']);
+  assert.deepEqual(
+    three.visible.map((panel) => panel.id),
+    ['panel-0', 'panel-2'],
+  );
+  assert.deepEqual(three.overflow, []);
+  assert.deepEqual(
+    three.hidden.map((panel) => panel.id),
+    ['panel-1'],
+  );
+
+  const six = splitPanels(fakePanels(6), ['panel-0']);
+  assert.deepEqual(
+    six.visible.map((panel) => panel.id),
+    ['panel-1', 'panel-2', 'panel-3'],
+  );
+  assert.deepEqual(
+    six.overflow.map((panel) => panel.id),
+    ['panel-4', 'panel-5'],
+  );
+  assert.deepEqual(
+    six.hidden.map((panel) => panel.id),
+    ['panel-0'],
+  );
+
+  const allHidden = splitPanels(fakePanels(2), ['panel-0', 'panel-1']);
+  assert.deepEqual(allHidden.visible, []);
+  assert.deepEqual(allHidden.overflow, []);
+  assert.deepEqual(
+    allHidden.hidden.map((panel) => panel.id),
+    ['panel-0', 'panel-1'],
+    '全部收起时仍要能通过 More 打开',
+  );
+});
+
+test('mergePanelOrder：保留用户顺序、丢弃失效 id、新面板按宿主顺序追加', () => {
+  assert.deepEqual(
+    mergePanelOrder(['b', 'a'], ['a', 'b', 'c'], ['a', 'b', 'c']),
+    ['b', 'a', 'c'],
+  );
+  assert.deepEqual(mergePanelOrder(['x', 'b'], ['a', 'b'], ['a', 'b']), ['b', 'a']);
+  assert.deepEqual(mergePanelOrder([], ['a', 'b'], ['b', 'a']), ['b', 'a']);
+  assert.deepEqual(mergePanelOrder(null, [], []), []);
+});
+
+test('moveVisibleOrder / replaceVisibleOrder / replaceHiddenOrder 保持收起项位置', () => {
+  assert.deepEqual(moveVisibleOrder(['a', 'b', 'c'], 'c', 0), ['c', 'a', 'b']);
+  assert.deepEqual(moveVisibleOrder(['a', 'b', 'c'], 'a', 2), ['b', 'c', 'a']);
+  assert.deepEqual(moveVisibleOrder(['a', 'b'], 'a', -3), ['a', 'b']);
+  assert.deepEqual(moveVisibleOrder(['a', 'b'], 'a', 9), ['b', 'a']);
+
+  assert.deepEqual(
+    replaceVisibleOrder(['a', 'h', 'b', 'c'], ['h'], ['c', 'a', 'b']),
+    ['c', 'h', 'a', 'b'],
+  );
+  assert.deepEqual(
+    replaceHiddenOrder(['a', 'h1', 'b', 'h2'], ['h1', 'h2'], ['h2', 'h1']),
+    ['a', 'h2', 'b', 'h1'],
+  );
+});
+
+test('panelsInOrder：按顺序重排，缺失项按原序补尾', () => {
+  const panels = fakePanels(3);
+  assert.deepEqual(
+    panelsInOrder(panels, ['panel-2', 'panel-0']).map((panel) => panel.id),
+    ['panel-2', 'panel-0', 'panel-1'],
+  );
+  assert.equal(panelsInOrder(panels, null), panels);
+});
+
+test('sanitizeLayoutPrefs：非法值回落到关闭，id 去重且丢弃空值', () => {
+  assert.deepEqual(sanitizeLayoutPrefs(null), { enabled: false, order: [], hidden: [] });
+  assert.deepEqual(
+    sanitizeLayoutPrefs({
+      enabled: 'yes',
+      order: ['a', 'a', '', 3, 'b'],
+      hidden: ['c', null, 'c'],
+    }),
+    { enabled: false, order: ['a', 'b'], hidden: ['c'] },
+  );
+  assert.deepEqual(sanitizeLayoutPrefs({ enabled: true }).enabled, true);
+});
+
+test('面板排序 store：开关/顺序/收起/预览/重置', () => {
+  const store = createPanelLayoutStore({
+    enabled: true,
+    order: ['b'],
+    hidden: ['a'],
+  });
+  assert.deepEqual(store.getSnapshot(), {
+    enabled: true,
+    order: ['b'],
+    hidden: ['a'],
+    trayOpen: false,
+    preview: null,
+  });
+  let notifications = 0;
+  const unsubscribe = store.subscribe(() => {
+    notifications += 1;
+  });
+  store.setEnabled(false);
+  assert.equal(store.getSnapshot().enabled, false);
+  store.hidePanel('c');
+  assert.deepEqual(store.getSnapshot().hidden, ['a', 'c']);
+  store.showPanel('a');
+  assert.deepEqual(store.getSnapshot().hidden, ['c']);
+  store.setOrder(['c', 'b']);
+  assert.deepEqual(store.getSnapshot().order, ['c', 'b']);
+  store.setPreview(['b', 'c']);
+  assert.deepEqual(store.getSnapshot().preview, ['b', 'c']);
+  const before = notifications;
+  store.setPreview(['b', 'c']);
+  assert.equal(notifications, before, '相同预览不应触发重渲染');
+  store.setTrayOpen(true);
+  assert.equal(store.getSnapshot().trayOpen, true);
+  store.reset();
+  assert.deepEqual(store.getSnapshot().order, []);
+  assert.deepEqual(store.getSnapshot().hidden, []);
+  assert.equal(notifications > 0, true);
+  unsubscribe();
+});
+
+test('apply 注册展开态 chrome、设置开关与工具栏 hooks', () => {
+  const { registered } = renderRail({ activePanelId: null });
+  const names = registered.map((candidate) => candidate.options.name);
+  assert.ok(names.includes('sidebar.footer.action'), '缺少展开态 chrome 注册');
+  assert.ok(names.includes('settings.general.item'), '缺少设置开关注册');
+  const chrome = registered.find(
+    (candidate) =>
+      candidate.options.name === 'sidebar.footer.action' &&
+      candidate.options.id === 'fold-minimal.sidebar-chrome',
+  );
+  assert.ok(chrome);
+  const chromeProps = chrome.options.inject();
+  assert.equal(typeof chromeProps.backToSession, 'function');
+  assert.equal(typeof chromeProps.toggleTray, 'function');
+  const settings = registered.find(
+    (candidate) =>
+      candidate.options.name === 'settings.general.item' &&
+      candidate.options.id === 'fold-minimal.panel-layout',
+  );
+  assert.ok(settings, '设置开关行应注册到 settings.general.item');
+});
+
+test('折叠态工具栏：开启排序与折叠后，收起项进 More，预览顺序生效', () => {
+  const layout = {
+    enabled: true,
+    order: ['panel-2', 'panel-0', 'panel-1'],
+    hidden: ['panel-1'],
+    trayOpen: false,
+    preview: null,
+  };
+  const { tree } = renderRail({ activePanelId: null }, fakePanels(3), layout);
+  const elements = flatten(tree);
+  const buttons = elements.filter((element) => element.props.panel !== undefined);
+  assert.deepEqual(
+    buttons.map((element) => element.props.panel.id),
+    ['panel-2', 'panel-0'],
+  );
+  const overflow = elements.find(
+    (element) => typeof element.type === 'function' && Array.isArray(element.props.hiddenPanels),
+  );
+  assert.ok(overflow, '收起项应交给 More 菜单');
+  assert.deepEqual(
+    overflow.props.hiddenPanels.map((panel) => panel.id),
+    ['panel-1'],
+  );
+
+  const dragging = {
+    ...layout,
+    preview: ['panel-0', 'panel-2', 'panel-1'],
+  };
+  const during = flatten(renderRail({ activePanelId: null }, fakePanels(3), dragging).tree).filter(
+    (element) => element.props.panel !== undefined,
+  );
+  assert.deepEqual(
+    during.map((element) => element.props.panel.id),
+    ['panel-0', 'panel-2'],
+    '拖拽预览顺序应立即反映到工具栏',
   );
 });
 
@@ -409,6 +616,149 @@ test('拖拽收起：非 darwin 平台与右侧栏手柄都不接管', () => {
     settleDrag(darwin, toggles, { endX: 400 });
     assert.deepEqual(toggles, [], '右侧栏拖拽不应折叠左侧栏');
     disposeDarwin();
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+/**
+ * 面板拖拽控制器的最小 document 替身：只实现安装/快速点击/清理路径所需的
+ * 属性、监听表和行几何，用来验证不会在 setup/teardown 阶段抛错。
+ */
+function createPanelEnv(platform) {
+  const attributes = new Map();
+  const listeners = new Map();
+  const rect = { top: 0, left: 0, right: 100, bottom: 32, width: 100, height: 32 };
+  const style = { removeProperty() {}, setProperty() {} };
+  const classList = { add() {}, remove() {} };
+  const row = {
+    style,
+    classList,
+    getAttribute: () => null,
+    closest: () => null,
+    getBoundingClientRect: () => rect,
+  };
+  const marker = {
+    nodeType: 1,
+    getAttribute: (name) => (name === 'data-dfm-id' ? 'panel-0' : null),
+    closest: (selector) =>
+      selector === '[data-dfm-id]' ? marker : selector === 'button' ? row : null,
+    parentElement: null,
+  };
+  const rail = {
+    querySelectorAll: () => [railButton],
+  };
+  const railButton = {
+    nodeType: 1,
+    style,
+    classList,
+    getAttribute: (name) =>
+      name === 'data-panel-id'
+        ? 'panel-0'
+        : name === 'data-fold-minimal'
+          ? 'panel'
+          : null,
+    closest: (selector) =>
+      selector === '[data-fold-minimal="rail"]'
+        ? rail
+        : selector === '[data-fold-minimal="panel"][data-panel-id]'
+          ? railButton
+          : null,
+    getBoundingClientRect: () => rect,
+    parentElement: null,
+  };
+  const document = {
+    documentElement: {
+      getAttribute: (name) =>
+        name === 'data-platform' ? platform : (attributes.get(name) ?? null),
+      setAttribute: (name, value) => attributes.set(name, value),
+      removeAttribute: (name) => attributes.delete(name),
+      hasAttribute: (name) => attributes.has(name),
+    },
+    addEventListener(type, fn) {
+      listeners.set(type, [...(listeners.get(type) ?? []), fn]);
+    },
+    removeEventListener(type, fn) {
+      listeners.set(
+        type,
+        (listeners.get(type) ?? []).filter((candidate) => candidate !== fn),
+      );
+    },
+    querySelector(selector) {
+      if (selector === '[data-fold-minimal="rail"]') return rail;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-dfm-id]') return [marker];
+      if (selector === '[data-fold-minimal="rail"] [data-fold-minimal="panel"][data-panel-id]') {
+        return [railButton];
+      }
+      return [];
+    },
+  };
+  return {
+    document,
+    marker,
+    railButton,
+    listenerCount: () => [...listeners.values()].reduce((total, fns) => total + fns.length, 0),
+    dispatch(type, event) {
+      for (const fn of [...(listeners.get(type) ?? [])]) fn(event);
+    },
+  };
+}
+
+test('面板拖拽控制器：安装、快速点击、卸载都干净地增删监听', () => {
+  const previousDocument = globalThis.document;
+  try {
+    const panelsSource = { getSnapshot: () => fakePanels(2) };
+
+    const expanded = createPanelEnv('darwin');
+    globalThis.document = expanded.document;
+    const layout = createPanelLayoutStore({ enabled: true, order: [], hidden: [] });
+    const disposeExpanded = installPanelDrag(layout, panelsSource);
+    const base = expanded.listenerCount();
+    assert.equal(base, 1, '只应常驻一个 pointerdown 监听');
+    expanded.dispatch('pointerdown', {
+      button: 0,
+      pointerId: 1,
+      clientX: 50,
+      clientY: 10,
+      target: expanded.marker,
+    });
+    assert.equal(expanded.listenerCount(), base + 3, '拖拽期间临时挂三个指针监听');
+    expanded.dispatch('pointerup', { pointerId: 1, clientX: 50, clientY: 10 });
+    assert.equal(expanded.listenerCount(), base, '快速点击后撤掉临时监听');
+    disposeExpanded();
+    assert.equal(expanded.listenerCount(), 0);
+
+    const rail = createPanelEnv('darwin');
+    globalThis.document = rail.document;
+    const disposeRail = installRailDrag(layout, panelsSource);
+    rail.dispatch('pointerdown', {
+      button: 0,
+      pointerId: 2,
+      clientX: 20,
+      clientY: 14,
+      target: rail.railButton,
+    });
+    rail.dispatch('pointerup', { pointerId: 2, clientX: 20, clientY: 14 });
+    assert.equal(rail.listenerCount(), 1, '快速点击后只剩常驻 pointerdown');
+    disposeRail();
+    assert.equal(rail.listenerCount(), 0);
+
+    const disabled = createPanelEnv('darwin');
+    globalThis.document = disabled.document;
+    const off = createPanelLayoutStore({ enabled: false, order: [], hidden: [] });
+    const disposeOff = installPanelDrag(off, panelsSource);
+    disabled.dispatch('pointerdown', {
+      button: 0,
+      pointerId: 3,
+      clientX: 50,
+      clientY: 10,
+      target: disabled.marker,
+    });
+    assert.equal(disabled.listenerCount(), 1, '开关关闭时不应进入拖拽会话');
+    disposeOff();
   } finally {
     globalThis.document = previousDocument;
   }

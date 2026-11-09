@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Fold Minimal",
-    "description": "When the sidebar is collapsed, keeps a toolbar at the window's top-left — reopen / global panel icons in the same order as the sidebar menu / new session — mapping every left-column panel into the collapsed state. Past four panels the fourth slot becomes a More button whose menu opens on hover; dragging the sidebar below its minimum width collapses it on release. While a global panel is open, a back-to-session button appears after New Session to return to the last working session."
+    "description": "When the sidebar is collapsed, keeps a toolbar at the window's top-left — reopen / global panel icons in the same order as the sidebar menu / new session / back to session — mapping every left-column panel into the collapsed state. Past four panels the fourth slot becomes a More button whose menu opens on hover; dragging the sidebar below its minimum width collapses it on release. While a global panel is open, a back-to-session button appears after New Session to return to the last working session. v0.4 also puts a back button beside the expanded sidebar's collapse control and adds an opt-in Panel order & fold part under Settings → General: both the expanded list and the collapsed toolbar share one order, support long-press drag reordering, and panels can be dragged into More and dragged back out."
   }
 }
