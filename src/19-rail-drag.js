@@ -83,28 +83,11 @@
         if (!buttons.length) return {
           index: 0, lineX: zoneRect.right - 4, top: zoneRect.top - 2, height: zoneRect.height + 4,
         };
-        var without = [];
-        for (var index = 0; index < buttons.length; index += 1) {
-          if (buttons[index].id !== draggedId) without.push(buttons[index]);
-        }
-        var target = 0;
-        for (var scan = 0; scan < without.length; scan += 1) {
-          if (x > without[scan].rect.left + without[scan].rect.width / 2) target += 1;
-        }
-        var lineX;
-        if (without.length === 0) {
-          lineX = buttons[0].rect.left + buttons[0].rect.width / 2;
-        } else if (target === 0) {
-          lineX = without[0].rect.left - 2;
-        } else if (target === without.length) {
-          lineX = without[without.length - 1].rect.right + 2;
-        } else {
-          lineX = (without[target - 1].rect.right + without[target].rect.left) / 2;
-        }
+        var target = insertionTargetAt(buttons, x, draggedId, true);
         var first = buttons[0].rect;
         return {
-          index: target,
-          lineX: lineX,
+          index: target.index,
+          lineX: target.position,
           top: first.top - 2,
           height: first.height + 4,
         };

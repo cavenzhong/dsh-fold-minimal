@@ -67,7 +67,8 @@
       var needsMore = !flattenRail && (officialPins
         ? split.more.length > 0
         : split.overflow.length > 0 || split.hidden.length > 0);
-      var morePanels = officialPins ? split.more : split.overflow;
+      var morePanels = officialPins ? split.pinned.slice(split.visible.length) : split.overflow;
+      var unpinnedPanels = officialPins ? split.unpinned : [];
       var hiddenPanels = officialPins ? [] : split.hidden;
       var panelButton = function (panel) {
         return h(PanelButton, {
@@ -128,6 +129,7 @@
             h(PanelOverflowMenu, {
               key: 'rail:more-panels',
               panels: morePanels,
+              unpinnedPanels: unpinnedPanels,
               hiddenPanels: hiddenPanels,
               officialPins: officialPins,
               dragActive: flattenRail,

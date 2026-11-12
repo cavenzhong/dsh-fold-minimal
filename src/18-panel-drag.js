@@ -111,27 +111,10 @@
           var moreRect = rectOf(moreRowElement());
           return moreRect ? { index: 0, lineY: moreRect.top - 2, left: moreRect.left, width: moreRect.width } : null;
         }
-        var without = [];
-        for (var index = 0; index < markers.length; index += 1) {
-          if (markers[index].id !== draggedId) without.push(markers[index]);
-        }
-        var target = 0;
-        for (var scan = 0; scan < without.length; scan += 1) {
-          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
-        }
-        var lineY;
-        if (without.length === 0) {
-          lineY = markers[0].rect.top;
-        } else if (target === 0) {
-          lineY = without[0].rect.top - 2;
-        } else if (target === without.length) {
-          lineY = without[without.length - 1].rect.bottom + 2;
-        } else {
-          lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
-        }
+        var target = insertionTargetAt(markers, y, draggedId);
         return {
-          index: target,
-          lineY: lineY,
+          index: target.index,
+          lineY: target.position,
           left: markers[0].rect.left,
           width: markers[0].rect.width,
         };
@@ -141,27 +124,10 @@
       function trayTargetAt(y, draggedId) {
         var rows = trayRows();
         if (!rows.length) return null;
-        var without = [];
-        for (var index = 0; index < rows.length; index += 1) {
-          if (rows[index].id !== draggedId) without.push(rows[index]);
-        }
-        var target = 0;
-        for (var scan = 0; scan < without.length; scan += 1) {
-          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
-        }
-        var lineY;
-        if (without.length === 0) {
-          lineY = rows[0].rect.top + rows[0].rect.height / 2;
-        } else if (target === 0) {
-          lineY = without[0].rect.top - 2;
-        } else if (target === without.length) {
-          lineY = without[without.length - 1].rect.bottom + 2;
-        } else {
-          lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
-        }
+        var target = insertionTargetAt(rows, y, draggedId);
         return {
-          index: target,
-          lineY: lineY,
+          index: target.index,
+          lineY: target.position,
           left: rows[0].rect.left,
           width: rows[0].rect.width,
         };
@@ -195,7 +161,6 @@
         if (session && session.row && session.row.classList) {
           session.row.classList.remove('DFM_rowDragging');
         }
-        if (session && session.ghost) session.ghost.dispose();
         session = null;
         store.setDragActive(false);
       }
@@ -271,7 +236,6 @@
           var dy = event.clientY - session.startY;
           if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
           session.active = true;
-          session.ghost = createDragGhost(session.row);
           store.setDragActive(true, session.id);
           document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
           if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
@@ -286,11 +250,9 @@
           frame = requestAnimationFrame(function () {
             frame = null;
             if (!session || !session.active) return;
-            if (session.ghost) session.ghost.move(session.x, session.y);
             updateDrag(session.x, session.y);
           });
         } else {
-          if (session.ghost) session.ghost.move(session.x, session.y);
           updateDrag(session.x, session.y);
         }
       }

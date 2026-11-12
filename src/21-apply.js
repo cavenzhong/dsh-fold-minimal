@@ -21,10 +21,10 @@
       var shadows = createShadowManager(ctx, layout, caps.officialPins);
 
       // 新版固定状态独立于组件生命周期观测：Rail 在外层 chrome，SidebarChrome
-      // 可能在侧栏折叠时晚挂载；这里直接盯宿主 nav，保证切换折叠时状态已就绪。
+      // 可能在侧栏折叠时晚挂载；优先直接订阅官方状态，不依赖 nav 的挂载时机。
       if (caps.officialPins) {
         ctx.effect(function () {
-          return installPinnedObserver(pins, panels.source);
+          return installPinnedObserver(pins, panels.source, ctx);
         }, 'fold-minimal: pinned observer');
       }
 
@@ -66,22 +66,12 @@
           return installPanelDrag(layout, panels.source, caps.officialPins);
         });
       }, 'fold-minimal: expanded panel drag');
-      var setOfficialPinned = function (id, pinned) {
-        var action = resolveOfficialSetPinned(ctx);
-        if (!action) return false;
-        try {
-          action(id, pinned);
-          return true;
-        } catch (error) {
-          return false;
-        }
-      };
       ctx.effect(function () {
         return watchLayoutFlag(layout, 'enabled', function () {
           return installRailDrag(layout, panels.source, {
             officialPins: caps.officialPins,
             pins: pins,
-            setPinned: setOfficialPinned,
+            setPinned: function (id, pinned) { return setOfficialPinned(ctx, id, pinned); },
           });
         });
       }, 'fold-minimal: rail panel drag');
@@ -200,7 +190,7 @@
         );
       });
 
-      // 插件详情页（Plugins → dsh-fold-minimal）里的两个组件开关。
+      // 插件详情页（Plugins → dsh-fold-minimal）里的三个组件开关。
       ctx.slots.inject('plugins.bundle.config', function () {
         return ctx.slots.register(
           {

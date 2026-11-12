@@ -11,6 +11,35 @@
       return width - (startWidth + (endX - startX));
     }
 
+    /**
+     * 按仍占位的完整列表确定视觉边界，再换算成移除被拖项后的插入下标。
+     * 不能先排除被拖项再平均两侧坐标，否则提示线会穿过它的原行/图标。
+     * @param entries - 按视觉顺序排列的 `{ id, rect }[]`。
+     * @param coordinate - 指针所在轴的坐标。
+     * @param draggedId - 被拖项 id（跨区时可以不在列表里）。
+     * @param horizontal - 横向图标列表；默认纵向行列表。
+     * @returns `{ index, position }`，空列表返回 null。
+     */
+    function insertionTargetAt(entries, coordinate, draggedId, horizontal) {
+      if (!entries.length) return null;
+      var start = horizontal ? 'left' : 'top';
+      var end = horizontal ? 'right' : 'bottom';
+      var slot = 0;
+      var index = 0;
+      while (slot < entries.length) {
+        var entry = entries[slot];
+        if (coordinate <= (entry.rect[start] + entry.rect[end]) / 2) break;
+        if (entry.id !== draggedId) index += 1;
+        slot += 1;
+      }
+      var position = slot === 0
+        ? entries[0].rect[start] - 2
+        : slot === entries.length
+          ? entries[slot - 1].rect[end] + 2
+          : (entries[slot - 1].rect[end] + entries[slot].rect[start]) / 2;
+      return { index: index, position: position };
+    }
+
     /** 一次提交分组与落点，避免恢复面板时先闪回旧位置。 */
     function placePanel(store, panels, id, index, intoTray) {
       var snapshot = store.getSnapshot();

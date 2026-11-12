@@ -13,6 +13,7 @@
       var row = marker && marker.closest ? marker.closest('button') : null;
       var nav = row && row.closest ? row.closest('nav') : null;
       if (!row || !nav) return null;
+      if (row.closest('[' + TRAY_ATTR + '],[' + TRAY_ID_ATTR + '],[data-fold-minimal="rail"],[role="menu"]')) return null;
       // 0.2.2 起 PanelRow 多了一层行容器（承载 pin 按钮），按钮不再是 nav 的
       // 直接子元素；向上找到 nav 的直接子元素来确认这是主列表行。
       var item = row;
@@ -61,18 +62,19 @@
     function pinnedIdsFromLabels(nav, panels) {
       if (!nav || !Array.isArray(panels)) return null;
       var rows = [];
+      var hasMore = false;
       for (var index = 0; index < nav.children.length; index += 1) {
         var item = nav.children[index];
         var button = null;
         if (item.tagName === 'BUTTON') button = item;
         else if (typeof item.querySelector === 'function') button = item.querySelector('button[aria-label]');
         if (!button) continue;
-        if (button.getAttribute('aria-haspopup') === 'menu') continue;
+        if (button.getAttribute('aria-haspopup') === 'menu') { hasMore = true; continue; }
         var label = button.getAttribute('aria-label');
         if (typeof label !== 'string' || label.length === 0) continue;
         rows.push(label);
       }
-      if (rows.length === 0) return null;
+      if (rows.length === 0) return hasMore ? [] : null;
       var pinned = [];
       var cursor = 0;
       for (var panelIndex = 0; panelIndex < panels.length && cursor < rows.length; panelIndex += 1) {
@@ -89,21 +91,37 @@
      * 观测宿主 nav 的固定集合，与组件生命周期解耦。
      *
      * `SidebarChrome` 是无渲染组件，但在某些布局下可能晚挂载/重挂载；固定状态用
-     * 独立的 plugin effect 观察更可靠。优先用 nav 行 aria-label 与面板顺序匹配，
-     * 匹配不上再退回影子标记，避免一次错误的标记集合覆盖正确结果。
+     * 独立的 plugin effect 观察更可靠。优先订阅官方 entryPins（快照为未固定 id），
+     * 不依赖侧栏是否挂载、标签是否重名；缺少该能力时才回退 DOM 观测。
      * @param pinStore - 固定状态 store。
      * @param panelsSource - 面板 observable source。
      * @returns 清理函数。
      */
-    function installPinnedObserver(pinStore, panelsSource) {
+    function installPinnedObserver(pinStore, panelsSource, ctx) {
+      var official = ctx ? resolveOfficialSidebar(ctx) : null;
+      var source = official && official.hooks.entryPins;
+      if (source && typeof source.getSnapshot === 'function' && typeof source.subscribe === 'function') {
+        var sync = function () {
+          var unpinned = source.getSnapshot();
+          if (!Array.isArray(unpinned)) return;
+          var panels = panelsSource.getSnapshot();
+          pinStore.setPinned(panelIdsOf(panels).filter(function (id) {
+            return unpinned.indexOf(id) === -1;
+          }));
+        };
+        var offPins = source.subscribe(sync);
+        var offPanels = panelsSource.subscribe(sync);
+        sync();
+        return function () { offPanels(); offPins(); };
+      }
       if (typeof document === 'undefined') return undefined;
-      var root = null;
       var observer = null;
       var frame = null;
       var scheduled = false;
       var read = function () {
         scheduled = false;
-        var nav = sidebarNavElement(root);
+        frame = null;
+        var nav = sidebarNavElement();
         if (!nav) return;
         var panels = panelsSource.getSnapshot();
         var fromLabels = pinnedIdsFromLabels(nav, panels);
@@ -129,16 +147,17 @@
           frame = setTimeout(read, 0);
         }
       };
-      var attach = function () {
-        if (typeof MutationObserver !== 'function') return;
-        if (observer) observer.disconnect();
-        root = sidebarRootElement();
+      if (typeof MutationObserver === 'function') {
         observer = new MutationObserver(schedule);
-        observer.observe(root || document.documentElement, { childList: true, subtree: true });
-      };
-      attach();
+        // 兼容路径需要观测侧栏根节点自身被替换的情况。
+        observer.observe(document.documentElement, {
+          childList: true, subtree: true, attributes: true, attributeFilter: ['aria-label', MARKER_ATTR],
+        });
+      }
+      var offPanelsFallback = panelsSource.subscribe(schedule);
       schedule();
       return function () {
+        offPanelsFallback();
         if (observer) observer.disconnect();
         if (frame !== null) {
           if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);

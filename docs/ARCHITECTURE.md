@@ -32,9 +32,9 @@ devDependency，改变这个包最重要的维护边界。
 | `03-styles.js` | 全部 CSS 与样式注入 | 改工具栏、菜单、拖拽提示外观 |
 | `04-panels.js` | 面板快照、顺序合并、切分、分组重排 | 改 4 格规则、固定/未固定切分 |
 | `05-storage.js` | cookie/localStorage、layout store、三个开关 | 改持久化字段、组件开关默认值 |
-| `06-version.js` | release/官方能力探测、官方 `setPinned` 解析 | 改新版/旧版判定、官方兼容 |
+| `06-version.js` | release/官方能力探测、官方注入与 `setPinned` 确认 | 改新版/旧版判定、官方兼容 |
 | `07-pins.js` | 官方固定状态 store | 改固定状态缓存/订阅 |
-| `08-dom.js` | 宿主行/nav 识别、固定状态 DOM 观测 | 适配 DSH 侧栏 DOM 结构变化 |
+| `08-dom.js` | 宿主行/nav 识别、官方固定状态订阅与 DOM 兼容观测 | 适配 DSH 侧栏 DOM 结构变化 |
 | `09-data.js` | 面板 observable source、React 订阅 | 改面板账本同步 |
 | `10-shadow.js` | 同 id 影子注册与图标包装 | 改排序账本、行隐藏 |
 | `11-icons.js` | 内置图标与错误边界 | 换图标、兜底图标 |
@@ -42,7 +42,7 @@ devDependency，改变这个包最重要的维护边界。
 | `13-menus.js` | 官方「更多」探针、悬停几何、整行命中与官方 More 换位、旧版 More hover | 改官方 More 的整行拖动/换位 |
 | `14-settings.js` | 插件详情页三个开关 | 改开关文案、兼容模式说明 |
 | `15-chrome.js` | 展开态返回键、旧版二级区、`SidebarChrome` | 改展开侧栏 chrome |
-| `16-drag-core.js` | 拖拽几何、ghost、插入线、旧版 placePanel | 改提示线、ghost 样式、旧版落点 |
+| `16-drag-core.js` | 共用插入边界几何、ghost、插入线、旧版 placePanel | 改提示线、ghost 样式、旧版落点 |
 | `17-collapse-drag.js` | 拖到最小宽度后继续左拖收起 | 改过冲阈值、指针提示 |
 | `18-panel-drag.js` | 展开侧栏行排序与旧版二级区落点 | 改行拖拽、收起/恢复 |
 | `19-rail-drag.js` | 折叠工具栏拖动、ghost、跨固定边界固定/取消固定 | 改平铺拖拽、落区、pin 提交 |
@@ -56,10 +56,11 @@ devDependency，改变这个包最重要的维护边界。
 |---|---|
 | 折叠后工具栏显示哪些面板、顺序 | `04-panels.js` + `20-rail.js` |
 | 新版固定/未固定怎么判定 | `06-version.js` + `07-pins.js` + `08-dom.js` |
-| 拖过固定边界时固定/取消固定 | `19-rail-drag.js` + `06-version.js` 的 `resolveOfficialSetPinned` |
+| 拖过固定边界时固定/取消固定 | `19-rail-drag.js` + `06-version.js` 的 `resolveOfficialSidebar` / `setOfficialPinned` |
 | 折叠「更多」的 ghost/平铺拖拽 | `19-rail-drag.js` + `20-rail.js` + `12-widgets.js` |
 | 官方「更多」里整行拖动 | `13-menus.js` 的 `installMenuReorder`/`menuRowForTarget` |
 | 折叠「更多」浮层定位/悬停不消失 | `12-widgets.js` + `13-menus.js` |
+| 折叠「更多」的固定溢出/未固定分组 | `20-rail.js` + `12-widgets.js` |
 | 组件开关、文案、兼容模式说明 | `14-settings.js` + `02-locales.js` + `05-storage.js` |
 | 返回会话按钮 | 看 `15-chrome.js` + `20-rail.js` + `14-settings.js` |
 | 拖到底继续左拖收起 | `17-collapse-drag.js` 的 `installDragCollapse` |

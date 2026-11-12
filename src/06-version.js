@@ -49,7 +49,7 @@
      */
     function parseVersion(value) {
       if (typeof value !== 'string') return null;
-      var match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(value.trim());
+      var match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value.trim());
       if (!match) return null;
       return {
         parts: [Number(match[1]), Number(match[2]), Number(match[3])],
@@ -128,7 +128,7 @@
     function createCapabilities(ctx) {
       var release = readBootRelease();
       var officialPins = false;
-      if (release) officialPins = compareVersions(release.version, OFFICIAL_MORE_RELEASE) >= 0;
+      if (release && parseVersion(release.version)) officialPins = compareVersions(release.version, OFFICIAL_MORE_RELEASE) >= 0;
       if (!officialPins) officialPins = bootHasOfficialMore();
       if (!officialPins && hasOfficialMore(ctx)) officialPins = true;
       return {
@@ -138,15 +138,15 @@
     }
 
     /**
-     * 从官方 shell.leading 注册项里取官方的 `setPinned`。
+     * 从官方 shell.leading 注册项里取 `setPinned` 与 `hooks.entryPins`。
      *
      * `ui-sidebar` 把 `{ setPinned, hooks.entryPins }` 放在它自己的 inject 结果里；
      * 折叠工具栏的拖动需要跨固定边界时，直接调用这个函数，不模拟点击、不维护
      * 第二套固定状态。找不到时返回 null，调用方降级为区内排序。
      * @param ctx - 客户端根上下文。
-     * @returns 官方 `setPinned(id, pinned)` 或 null。
+     * @returns 官方注入属性，或 null。
      */
-    function resolveOfficialSetPinned(ctx) {
+    function resolveOfficialSidebar(ctx) {
       try {
         if (!ctx.slots || typeof ctx.slots.entries !== 'function') return null;
         var entries = ctx.slots.entries(SLOT);
@@ -171,13 +171,30 @@
             injected.hooks &&
             injected.hooks.entryPins
           ) {
-            return injected.setPinned;
+            return injected;
           }
         }
       } catch (error) {
         // 自定义组合可能没有官方侧栏；降级为区内排序。
       }
       return null;
+    }
+
+    /** 官方拒绝变更（例如 plugins 始终固定）时，不提交跨区排序。 */
+    function setOfficialPinned(ctx, id, pinned) {
+      var official = resolveOfficialSidebar(ctx);
+      if (!official) return false;
+      try {
+        official.setPinned(id, pinned);
+        var source = official.hooks.entryPins;
+        if (source && typeof source.getSnapshot === 'function') {
+          var unpinned = source.getSnapshot();
+          if (Array.isArray(unpinned)) return (unpinned.indexOf(id) === -1) === pinned;
+        }
+        return true;
+      } catch (error) {
+        return false;
+      }
     }
 
     /**

@@ -172,15 +172,16 @@
 
 ### 固定状态同步
 
-- 官方固定状态在 `ui-sidebar` 内部，不通过公开 slot 暴露。插件不复制它的
-  `entryPins`。观测由 `installPinnedObserver` 在 `apply` 里独立安装，不依赖
-  `SidebarChrome` 的挂载时序；它从两个只读信号同步：
-  - 排序开启时，影子包装在宿主 nav 里的 `data-dfm-id` 给出当前渲染的固定行；
-  - 排序关闭时，按 nav 行的 `aria-label` 与面板顺序做顺序匹配（`pinnedIdsFromLabels`）。
+- `installPinnedObserver` 在 `apply` 里独立安装，不依赖 `SidebarChrome` 的挂载时序。
+  优先从官方 `shell.leading` 注入结果取得 `hooks.entryPins`，直接订阅未固定 id
+  数组，并跟随面板增删重算固定集合，不维护第二套可写固定状态。
+  缺少该 observable 时回退 nav 的 `aria-label` / `data-dfm-id` 观测；兼容路径
+  跟随侧栏根替换，无法可靠匹配时保留上次状态。
 - 官方「更多」菜单渲染时，它的 owner props `entries` 带权威 `pinned` 布尔值；
   `MoreMenuObserver` 在每个浮层打开时回写 `createPinsStore`，修正 DOM 推断。
 - `splitOfficialPanels` 只平铺固定项；固定项超过 4 个时保留前 3 个，固定项溢出
-  与未固定项按全局顺序进入「更多」。`pinned === null`（尚未观测）时先按全部固定
+  与未固定项分组进入「更多」：固定溢出在前，未固定组带「未固定到侧栏」说明，
+  两组同时存在时用分割线区分，各组内部保留保存顺序。`pinned === null`（尚未观测）时先按全部固定
   处理，避免启动瞬间隐藏入口。
 
 ### 排序换位
@@ -193,7 +194,9 @@
   注册随后把同一 order 同步到展开侧栏、折叠工具栏与「更多」。
 - `installMenuReorder` 现在只服务官方「更多」：它用
   `menuRowForTarget` 找“包含面板标记的整行按钮”，所以标题、空白都能拖，行内
-  图钉按钮不会误触发。拖动时只画固定定位的插入线，松手才提交。
+  图钉按钮不会误触发。拖动时只画固定定位的插入线，松手才提交；菜单外松手取消。
+- 所有落点共用 `insertionTargetAt`：按仍占位的完整列表计算视觉边界，再换算
+  移除被拖项后的下标，避免提示线穿过原行。展开侧栏不显示 ghost。
 
 ### 悬停浮层
 
@@ -229,10 +232,11 @@ v0.6 把折叠「更多」的换位改回 0.4 的手感，但语义对齐官方�
    `officialDropPlan` 计算目标 bucket，`reorderBucket` 写回顺序；
 7. 如果拿不到官方 `setPinned`，跨区落点取消，不假装改变固定状态。
 
-官方 `setPinned` 的取得方式：`resolveOfficialSetPinned(ctx)` 从
+官方 `setPinned` 的取得方式：`resolveOfficialSidebar(ctx)` 从
 `ctx.slots.entries('shell.leading')` 里找官方注册项，调用它的
 `options.inject()`，识别同时带 `setPinned` 与 `hooks.entryPins` 的返回值。
-不模拟点击，也不复制官方 pin store。
+不模拟点击，也不复制官方 pin store。`setOfficialPinned` 调用后核对官方快照，
+宿主拒绝变更（如 `plugins` 不可取消固定）时取消跨区排序。
 
 旧版 DSH 仍然渲染 `visible` / `hidden` 两区，跨区调用 `placePanel` 修改插件
 自己的收起状态。两种模式共用同一个 `installRailDrag`，只是落区与提交函数不同。
@@ -426,7 +430,7 @@ npm test
   生命周期、跨组放置的原子提交、菜单收起项拖出后的临时平铺与取消拖动。
 - 0.4.3 新增相同布局零持久化、存储属性访问受限、特殊 id、影子读取失败与重注册、延迟折叠取消、每帧合并测量、组件开关完整清理和图标选中快照测试。
 - 0.5.0 新增 semver/prerelease 比较、boot/官方注册者探测、官方固定项切分、分组换位、固定状态 store、悬停几何走廊、0.2.2 行容器识别与 aria-label 固定项反推。
-- 0.6.0 新增官方「更多」整行命中、`resolveOfficialSetPinned`、跨固定边界 `officialDropPlan` 与平铺两区渲染测试，共 55 项。
+- 0.6.0 新增官方「更多」整行命中、官方注入解析、跨固定边界 `officialDropPlan` 与平铺两区渲染测试；本轮补充几何、菜单分组、状态订阅和异常路径，共 64 项。详见 [适配排查](REFACTOR_REVIEW.md)。
 - 本轮额外用本机 DSH 打包的 React、Menu、PanelMoreMenu 和 PanelRow 组件搭建
   浏览器夹具，验证展开二级区、悬停菜单、拖进/拖出、溢出项移到首位、全收起后
   恢复首项、无效落点与 Esc 取消；完整宿主窗口仍需在安装后确认。
@@ -436,6 +440,7 @@ Node 22 / 24 运行同一套 `node --test`；测试无第三方依赖，不需�
 
 ## 更新记录
 
+- **0.6.5**：四处拖动落点共用 `insertionTargetAt`，按仍占位的完整列表计算视觉边界；展开侧栏移除 ghost，顶部折叠工具栏保留；折叠「更多」分开固定溢出项与未固定项。官方菜单预览和提交共用边界检测，固定状态优先订阅 `entryPins`，跨区操作核对宿主是否接受；修复旧版 tray 识别及版本检测。64 项测试与 27 项浏览器夹具检查通过，详见 [适配排查](REFACTOR_REVIEW.md)。
 - **0.6.1**：`client.js` 改为生成产物，源码按功能拆到 `src/`（23 个 fragment，manifest 定序）；新增零依赖 `scripts/build-client.mjs` 与 `npm run build` / `check`，`pretest` 校验生成文件；行为不变。模块地图见 [ARCHITECTURE](ARCHITECTURE.md)。
 - **0.6.0**：折叠「更多」改回平铺 + ghost：拖动时菜单关闭、工具栏展开为「固定 / 未固定」两区，跨边界调用官方 `setPinned`；官方「更多」与折叠「更多」整行可拖；修复拖动时光标压在竖向菜单上的问题。
 - **0.5.0**：自动识别 DSH 0.2.2+ 官方固定菜单：新版折叠工具栏只显示固定项、未固定项进官方「更多」，删除第二套隐藏状态；旧版保持原收起。新增独立「返回会话按钮」开关；修复折叠工具栏「更多」浮层被主面板遮挡导致一移开就消失（portal + 悬停走廊）；修复 0.2.2 `PanelRow` 多一层容器后排序失效、展开/折叠/更多不同步；官方「更多」与折叠「更多」浮层内支持拖动换位。

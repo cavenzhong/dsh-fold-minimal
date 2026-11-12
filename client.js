@@ -164,6 +164,7 @@ window.__ModuleLoader__.load({
       'session.new.label': '新建会话',
       'session.back.label': '返回会话',
       'panels.more': '更多面板',
+      'panels.unpinned': '未固定到侧栏',
       'layout.title': '面板挪位与折叠',
       'layout.description': '按住拖动面板调整顺序，蓝色插入线提示落点；展开侧栏与折叠工具栏同步；把面板拖进「更多」可收起，再拖回恢复。',
       'layout.title.new': '面板挪位',
@@ -193,6 +194,7 @@ window.__ModuleLoader__.load({
       'session.new.label': 'New session',
       'session.back.label': 'Back to session',
       'panels.more': 'More panels',
+      'panels.unpinned': 'Not pinned to sidebar',
       'layout.title': 'Panel reorder & fold',
       'layout.description': 'Drag a panel to reorder it (a blue insertion line shows the drop position); the expanded list and the collapsed toolbar share one order. Drag a panel into More to put it away, and drag it back to restore.',
       'layout.title.new': 'Panel reorder',
@@ -832,8 +834,6 @@ window.__ModuleLoader__.load({
       };
     }
 
-    /**
-
     /* ── src/06-version.js — DSH release/capability detection and official setPinned resolution ── */
     /* ─────────────── 版本检测：官方固定菜单 / 「更多」兼容模式 ─────────────── */
 
@@ -886,7 +886,7 @@ window.__ModuleLoader__.load({
      */
     function parseVersion(value) {
       if (typeof value !== 'string') return null;
-      var match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(value.trim());
+      var match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value.trim());
       if (!match) return null;
       return {
         parts: [Number(match[1]), Number(match[2]), Number(match[3])],
@@ -965,7 +965,7 @@ window.__ModuleLoader__.load({
     function createCapabilities(ctx) {
       var release = readBootRelease();
       var officialPins = false;
-      if (release) officialPins = compareVersions(release.version, OFFICIAL_MORE_RELEASE) >= 0;
+      if (release && parseVersion(release.version)) officialPins = compareVersions(release.version, OFFICIAL_MORE_RELEASE) >= 0;
       if (!officialPins) officialPins = bootHasOfficialMore();
       if (!officialPins && hasOfficialMore(ctx)) officialPins = true;
       return {
@@ -975,15 +975,15 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 从官方 shell.leading 注册项里取官方的 `setPinned`。
+     * 从官方 shell.leading 注册项里取 `setPinned` 与 `hooks.entryPins`。
      *
      * `ui-sidebar` 把 `{ setPinned, hooks.entryPins }` 放在它自己的 inject 结果里；
      * 折叠工具栏的拖动需要跨固定边界时，直接调用这个函数，不模拟点击、不维护
      * 第二套固定状态。找不到时返回 null，调用方降级为区内排序。
      * @param ctx - 客户端根上下文。
-     * @returns 官方 `setPinned(id, pinned)` 或 null。
+     * @returns 官方注入属性，或 null。
      */
-    function resolveOfficialSetPinned(ctx) {
+    function resolveOfficialSidebar(ctx) {
       try {
         if (!ctx.slots || typeof ctx.slots.entries !== 'function') return null;
         var entries = ctx.slots.entries(SLOT);
@@ -1008,13 +1008,30 @@ window.__ModuleLoader__.load({
             injected.hooks &&
             injected.hooks.entryPins
           ) {
-            return injected.setPinned;
+            return injected;
           }
         }
       } catch (error) {
         // 自定义组合可能没有官方侧栏；降级为区内排序。
       }
       return null;
+    }
+
+    /** 官方拒绝变更（例如 plugins 始终固定）时，不提交跨区排序。 */
+    function setOfficialPinned(ctx, id, pinned) {
+      var official = resolveOfficialSidebar(ctx);
+      if (!official) return false;
+      try {
+        official.setPinned(id, pinned);
+        var source = official.hooks.entryPins;
+        if (source && typeof source.getSnapshot === 'function') {
+          var unpinned = source.getSnapshot();
+          if (Array.isArray(unpinned)) return (unpinned.indexOf(id) === -1) === pinned;
+        }
+        return true;
+      } catch (error) {
+        return false;
+      }
     }
 
     /**
@@ -1237,6 +1254,7 @@ window.__ModuleLoader__.load({
       var row = marker && marker.closest ? marker.closest('button') : null;
       var nav = row && row.closest ? row.closest('nav') : null;
       if (!row || !nav) return null;
+      if (row.closest('[' + TRAY_ATTR + '],[' + TRAY_ID_ATTR + '],[data-fold-minimal="rail"],[role="menu"]')) return null;
       // 0.2.2 起 PanelRow 多了一层行容器（承载 pin 按钮），按钮不再是 nav 的
       // 直接子元素；向上找到 nav 的直接子元素来确认这是主列表行。
       var item = row;
@@ -1285,18 +1303,19 @@ window.__ModuleLoader__.load({
     function pinnedIdsFromLabels(nav, panels) {
       if (!nav || !Array.isArray(panels)) return null;
       var rows = [];
+      var hasMore = false;
       for (var index = 0; index < nav.children.length; index += 1) {
         var item = nav.children[index];
         var button = null;
         if (item.tagName === 'BUTTON') button = item;
         else if (typeof item.querySelector === 'function') button = item.querySelector('button[aria-label]');
         if (!button) continue;
-        if (button.getAttribute('aria-haspopup') === 'menu') continue;
+        if (button.getAttribute('aria-haspopup') === 'menu') { hasMore = true; continue; }
         var label = button.getAttribute('aria-label');
         if (typeof label !== 'string' || label.length === 0) continue;
         rows.push(label);
       }
-      if (rows.length === 0) return null;
+      if (rows.length === 0) return hasMore ? [] : null;
       var pinned = [];
       var cursor = 0;
       for (var panelIndex = 0; panelIndex < panels.length && cursor < rows.length; panelIndex += 1) {
@@ -1313,21 +1332,37 @@ window.__ModuleLoader__.load({
      * 观测宿主 nav 的固定集合，与组件生命周期解耦。
      *
      * `SidebarChrome` 是无渲染组件，但在某些布局下可能晚挂载/重挂载；固定状态用
-     * 独立的 plugin effect 观察更可靠。优先用 nav 行 aria-label 与面板顺序匹配，
-     * 匹配不上再退回影子标记，避免一次错误的标记集合覆盖正确结果。
+     * 独立的 plugin effect 观察更可靠。优先订阅官方 entryPins（快照为未固定 id），
+     * 不依赖侧栏是否挂载、标签是否重名；缺少该能力时才回退 DOM 观测。
      * @param pinStore - 固定状态 store。
      * @param panelsSource - 面板 observable source。
      * @returns 清理函数。
      */
-    function installPinnedObserver(pinStore, panelsSource) {
+    function installPinnedObserver(pinStore, panelsSource, ctx) {
+      var official = ctx ? resolveOfficialSidebar(ctx) : null;
+      var source = official && official.hooks.entryPins;
+      if (source && typeof source.getSnapshot === 'function' && typeof source.subscribe === 'function') {
+        var sync = function () {
+          var unpinned = source.getSnapshot();
+          if (!Array.isArray(unpinned)) return;
+          var panels = panelsSource.getSnapshot();
+          pinStore.setPinned(panelIdsOf(panels).filter(function (id) {
+            return unpinned.indexOf(id) === -1;
+          }));
+        };
+        var offPins = source.subscribe(sync);
+        var offPanels = panelsSource.subscribe(sync);
+        sync();
+        return function () { offPanels(); offPins(); };
+      }
       if (typeof document === 'undefined') return undefined;
-      var root = null;
       var observer = null;
       var frame = null;
       var scheduled = false;
       var read = function () {
         scheduled = false;
-        var nav = sidebarNavElement(root);
+        frame = null;
+        var nav = sidebarNavElement();
         if (!nav) return;
         var panels = panelsSource.getSnapshot();
         var fromLabels = pinnedIdsFromLabels(nav, panels);
@@ -1353,16 +1388,17 @@ window.__ModuleLoader__.load({
           frame = setTimeout(read, 0);
         }
       };
-      var attach = function () {
-        if (typeof MutationObserver !== 'function') return;
-        if (observer) observer.disconnect();
-        root = sidebarRootElement();
+      if (typeof MutationObserver === 'function') {
         observer = new MutationObserver(schedule);
-        observer.observe(root || document.documentElement, { childList: true, subtree: true });
-      };
-      attach();
+        // 兼容路径需要观测侧栏根节点自身被替换的情况。
+        observer.observe(document.documentElement, {
+          childList: true, subtree: true, attributes: true, attributeFilter: ['aria-label', MARKER_ATTR],
+        });
+      }
+      var offPanelsFallback = panelsSource.subscribe(schedule);
       schedule();
       return function () {
+        offPanelsFallback();
         if (observer) observer.disconnect();
         if (frame !== null) {
           if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
@@ -1909,11 +1945,12 @@ window.__ModuleLoader__.load({
      *
      * 旧版仍在此列出被收起的面板；新版这些行由官方「更多」负责，只列固定项溢出
      * 与未固定项。
-     * @param props - panels / hiddenPanels / t / usePanelInfo / onSelect /
-     *   onReorder / dragActive。
+     * @param props - panels（固定溢出项）/ unpinnedPanels / hiddenPanels /
+     *   t / usePanelInfo / onSelect / dragActive。
      */
     function PanelOverflowMenu(props) {
       var panels = Array.isArray(props.panels) ? props.panels : [];
+      var unpinnedPanels = Array.isArray(props.unpinnedPanels) ? props.unpinnedPanels : [];
       var hiddenPanels = Array.isArray(props.hiddenPanels) ? props.hiddenPanels : [];
       var openState = React.useState(false);
       var open = openState[0];
@@ -2070,11 +2107,14 @@ window.__ModuleLoader__.load({
         for (var hiddenIndex = 0; hiddenIndex < hiddenPanels.length; hiddenIndex += 1) {
           if (hiddenPanels[hiddenIndex].id === info.activePanelId) return true;
         }
+        for (var unpinnedIndex = 0; unpinnedIndex < unpinnedPanels.length; unpinnedIndex += 1) {
+          if (unpinnedPanels[unpinnedIndex].id === info.activePanelId) return true;
+        }
         return false;
       });
-      var rows = panels.map(function (panel) {
+      var menuItem = function (panel) {
         return h(PanelMenuItem, {
-          key: 'overflow:' + panel.id,
+          key: 'panel:' + panel.id,
           panel: panel,
           railItem: true,
           usePanelInfo: props.usePanelInfo,
@@ -2083,7 +2123,19 @@ window.__ModuleLoader__.load({
             props.onSelect(selected);
           },
         });
-      });
+      };
+      var rows = panels.map(menuItem);
+      if (unpinnedPanels.length > 0) {
+        if (rows.length > 0) rows.push(h('div', {
+          key: 'fold-minimal:unpinned-divider', className: 'DFM_menuDivider', role: 'separator',
+        }));
+        rows.push(h('div', {
+          key: 'fold-minimal:unpinned-label', className: 'DFM_menuGroup',
+        }, props.t('panels.unpinned')));
+        for (var unpinnedIndex = 0; unpinnedIndex < unpinnedPanels.length; unpinnedIndex += 1) {
+          rows.push(menuItem(unpinnedPanels[unpinnedIndex]));
+        }
+      }
       if (hiddenPanels.length > 0) {
         rows.push(
           h('div', {
@@ -2100,18 +2152,7 @@ window.__ModuleLoader__.load({
           ),
         );
         for (var hiddenIndex = 0; hiddenIndex < hiddenPanels.length; hiddenIndex += 1) {
-          rows.push(
-            h(PanelMenuItem, {
-              key: 'hidden:' + hiddenPanels[hiddenIndex].id,
-              panel: hiddenPanels[hiddenIndex],
-              railItem: true,
-              usePanelInfo: props.usePanelInfo,
-              onSelect: function (selected) {
-                close();
-                props.onSelect(selected);
-              },
-            }),
-          );
+          rows.push(menuItem(hiddenPanels[hiddenIndex]));
         }
       }
 
@@ -2271,8 +2312,6 @@ window.__ModuleLoader__.load({
       var markerRef = React.useRef(null);
       var entriesRef = React.useRef(props.entries);
       entriesRef.current = props.entries;
-      var tRef = React.useRef(props.t);
-      tRef.current = props.t;
       var enabled = props.useLayout(function (snapshot) {
         return snapshot.enabled === true;
       });
@@ -2293,7 +2332,7 @@ window.__ModuleLoader__.load({
             if (entries[entryIndex] && entries[entryIndex].pinned === false) bucket.push(entries[entryIndex].id);
           }
           reorderBucket(props.layoutStore, props.panelsSource.getSnapshot(), bucket, id, index);
-        }, tRef);
+        });
       }, [enabled]);
       return h('span', {
         ref: markerRef,
@@ -2301,12 +2340,6 @@ window.__ModuleLoader__.load({
         style: { display: 'contents' },
       });
     }
-
-    /**
-     * 展开侧栏「更多」下方的缩进二级区：列出被收起的面板。
-     * 点行打开面板；拖出/入由 installPanelDrag 的事件委托处理。
-     * @param props - panels / activePanelId / t / onOpen / onReset。
-     */
 
     /** 用宿主按钮打开/关闭原生浮层；二级区展开或拖动时禁止浮层抢占操作。 */
     function installSidebarMoreHover(button, anchor, store) {
@@ -2416,14 +2449,13 @@ window.__ModuleLoader__.load({
     /**
      * 在任意浮层菜单里做纵向换位：浮层由宿主 portal 渲染，行也由宿主渲染，
      * 这里只按 `idAttr` 找到行、画插入线，松手后把新顺序交给调用方。
-     * 官方的「更多」和折叠工具栏自己的「更多」共用这一个控制器。
+     * 官方「更多」在菜单内排序；折叠工具栏「更多」由 installRailDrag 接管。
      * @param menu - 浮层根节点。
      * @param idAttr - 行上的面板 id 属性（`data-dfm-id` / `data-dfm-rail-menu-id`）。
      * @param onReorder - `(id, index) => void`，index 为移除被拖行后的落点。
-     * @param tRef - 可选文案 ref（当前未使用，保留给无障碍提示扩展）。
      * @returns 清理函数。
      */
-    function installMenuReorder(menu, idAttr, onReorder, tRef) {
+    function installMenuReorder(menu, idAttr, onReorder) {
       if (!menu || typeof onReorder !== 'function') return function () {};
       var session = null;
       var indicator = createInsertionIndicator();
@@ -2454,25 +2486,19 @@ window.__ModuleLoader__.load({
       function targetAt(y, draggedId) {
         var rows = rowsAt();
         if (!rows.length) return null;
-        var without = [];
-        for (var index = 0; index < rows.length; index += 1) {
-          if (rows[index].id !== draggedId) without.push(rows[index]);
-        }
-        var target = 0;
-        for (var scan = 0; scan < without.length; scan += 1) {
-          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
-        }
-        var lineY;
-        if (without.length === 0) lineY = rows[0].rect.top + rows[0].rect.height / 2;
-        else if (target === 0) lineY = without[0].rect.top - 2;
-        else if (target === without.length) lineY = without[without.length - 1].rect.bottom + 2;
-        else lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
+        var target = insertionTargetAt(rows, y, draggedId);
         return {
-          index: target,
-          lineY: lineY,
+          index: target.index,
+          lineY: target.position,
           left: rows[0].rect.left,
           width: rows[0].rect.width,
         };
+      }
+
+      function dropTargetAt(x, y, draggedId) {
+        var rect = menu.getBoundingClientRect();
+        if (x < rect.left - 12 || x > rect.right + 12 || y < rect.top - 12 || y > rect.bottom + 12) return null;
+        return targetAt(y, draggedId);
       }
 
       function resetSession() {
@@ -2491,13 +2517,9 @@ window.__ModuleLoader__.load({
 
       function updateDrag(x, y) {
         if (!session || !session.active) return;
-        var rect = menu.getBoundingClientRect();
-        if (x < rect.left - 12 || x > rect.right + 12 || y < rect.top - 12 || y > rect.bottom + 12) {
-          if (indicator) indicator.hide();
-          return;
-        }
-        var target = targetAt(y, session.id);
+        var target = dropTargetAt(x, y, session.id);
         if (target && indicator) indicator.showVertical(target.left, target.width, target.lineY);
+        else if (indicator) indicator.hide();
       }
 
       function onPointerMove(event) {
@@ -2530,9 +2552,7 @@ window.__ModuleLoader__.load({
       function onPointerUp(event) {
         if (!session || event.pointerId !== session.pointerId) return;
         var drag = session;
-        // 浮层是 fixed/portal 的，菜单 rect 与页面坐标偶尔会差一帧；换位只需要
-        // 纵向落点，按行中点计算即可，不再用矩形二次否决。
-        var target = drag.active ? targetAt(event.clientY, drag.id) : null;
+        var target = drag.active ? dropTargetAt(event.clientX, event.clientY, drag.id) : null;
         var active = drag.active;
         resetSession();
         if (!active) return;
@@ -2554,6 +2574,8 @@ window.__ModuleLoader__.load({
 
       function onPointerDown(event) {
         if (event.button !== 0 || session) return;
+        if (document.documentElement.getAttribute('data-platform') !== 'darwin' ||
+            document.documentElement.hasAttribute(DRAG_ROOT_ATTR)) return;
         var hit = menuRowForTarget(event.target, menu, idAttr);
         if (!hit) return;
         session = {
@@ -3030,6 +3052,35 @@ window.__ModuleLoader__.load({
       return width - (startWidth + (endX - startX));
     }
 
+    /**
+     * 按仍占位的完整列表确定视觉边界，再换算成移除被拖项后的插入下标。
+     * 不能先排除被拖项再平均两侧坐标，否则提示线会穿过它的原行/图标。
+     * @param entries - 按视觉顺序排列的 `{ id, rect }[]`。
+     * @param coordinate - 指针所在轴的坐标。
+     * @param draggedId - 被拖项 id（跨区时可以不在列表里）。
+     * @param horizontal - 横向图标列表；默认纵向行列表。
+     * @returns `{ index, position }`，空列表返回 null。
+     */
+    function insertionTargetAt(entries, coordinate, draggedId, horizontal) {
+      if (!entries.length) return null;
+      var start = horizontal ? 'left' : 'top';
+      var end = horizontal ? 'right' : 'bottom';
+      var slot = 0;
+      var index = 0;
+      while (slot < entries.length) {
+        var entry = entries[slot];
+        if (coordinate <= (entry.rect[start] + entry.rect[end]) / 2) break;
+        if (entry.id !== draggedId) index += 1;
+        slot += 1;
+      }
+      var position = slot === 0
+        ? entries[0].rect[start] - 2
+        : slot === entries.length
+          ? entries[slot - 1].rect[end] + 2
+          : (entries[slot - 1].rect[end] + entries[slot].rect[start]) / 2;
+      return { index: index, position: position };
+    }
+
     /** 一次提交分组与落点，避免恢复面板时先闪回旧位置。 */
     function placePanel(store, panels, id, index, intoTray) {
       var snapshot = store.getSnapshot();
@@ -3364,27 +3415,10 @@ window.__ModuleLoader__.load({
           var moreRect = rectOf(moreRowElement());
           return moreRect ? { index: 0, lineY: moreRect.top - 2, left: moreRect.left, width: moreRect.width } : null;
         }
-        var without = [];
-        for (var index = 0; index < markers.length; index += 1) {
-          if (markers[index].id !== draggedId) without.push(markers[index]);
-        }
-        var target = 0;
-        for (var scan = 0; scan < without.length; scan += 1) {
-          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
-        }
-        var lineY;
-        if (without.length === 0) {
-          lineY = markers[0].rect.top;
-        } else if (target === 0) {
-          lineY = without[0].rect.top - 2;
-        } else if (target === without.length) {
-          lineY = without[without.length - 1].rect.bottom + 2;
-        } else {
-          lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
-        }
+        var target = insertionTargetAt(markers, y, draggedId);
         return {
-          index: target,
-          lineY: lineY,
+          index: target.index,
+          lineY: target.position,
           left: markers[0].rect.left,
           width: markers[0].rect.width,
         };
@@ -3394,27 +3428,10 @@ window.__ModuleLoader__.load({
       function trayTargetAt(y, draggedId) {
         var rows = trayRows();
         if (!rows.length) return null;
-        var without = [];
-        for (var index = 0; index < rows.length; index += 1) {
-          if (rows[index].id !== draggedId) without.push(rows[index]);
-        }
-        var target = 0;
-        for (var scan = 0; scan < without.length; scan += 1) {
-          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
-        }
-        var lineY;
-        if (without.length === 0) {
-          lineY = rows[0].rect.top + rows[0].rect.height / 2;
-        } else if (target === 0) {
-          lineY = without[0].rect.top - 2;
-        } else if (target === without.length) {
-          lineY = without[without.length - 1].rect.bottom + 2;
-        } else {
-          lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
-        }
+        var target = insertionTargetAt(rows, y, draggedId);
         return {
-          index: target,
-          lineY: lineY,
+          index: target.index,
+          lineY: target.position,
           left: rows[0].rect.left,
           width: rows[0].rect.width,
         };
@@ -3448,7 +3465,6 @@ window.__ModuleLoader__.load({
         if (session && session.row && session.row.classList) {
           session.row.classList.remove('DFM_rowDragging');
         }
-        if (session && session.ghost) session.ghost.dispose();
         session = null;
         store.setDragActive(false);
       }
@@ -3524,7 +3540,6 @@ window.__ModuleLoader__.load({
           var dy = event.clientY - session.startY;
           if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
           session.active = true;
-          session.ghost = createDragGhost(session.row);
           store.setDragActive(true, session.id);
           document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
           if (session.row && session.row.classList) session.row.classList.add('DFM_rowDragging');
@@ -3539,11 +3554,9 @@ window.__ModuleLoader__.load({
           frame = requestAnimationFrame(function () {
             frame = null;
             if (!session || !session.active) return;
-            if (session.ghost) session.ghost.move(session.x, session.y);
             updateDrag(session.x, session.y);
           });
         } else {
-          if (session.ghost) session.ghost.move(session.x, session.y);
           updateDrag(session.x, session.y);
         }
       }
@@ -3747,28 +3760,11 @@ window.__ModuleLoader__.load({
         if (!buttons.length) return {
           index: 0, lineX: zoneRect.right - 4, top: zoneRect.top - 2, height: zoneRect.height + 4,
         };
-        var without = [];
-        for (var index = 0; index < buttons.length; index += 1) {
-          if (buttons[index].id !== draggedId) without.push(buttons[index]);
-        }
-        var target = 0;
-        for (var scan = 0; scan < without.length; scan += 1) {
-          if (x > without[scan].rect.left + without[scan].rect.width / 2) target += 1;
-        }
-        var lineX;
-        if (without.length === 0) {
-          lineX = buttons[0].rect.left + buttons[0].rect.width / 2;
-        } else if (target === 0) {
-          lineX = without[0].rect.left - 2;
-        } else if (target === without.length) {
-          lineX = without[without.length - 1].rect.right + 2;
-        } else {
-          lineX = (without[target - 1].rect.right + without[target].rect.left) / 2;
-        }
+        var target = insertionTargetAt(buttons, x, draggedId, true);
         var first = buttons[0].rect;
         return {
-          index: target,
-          lineX: lineX,
+          index: target.index,
+          lineX: target.position,
           top: first.top - 2,
           height: first.height + 4,
         };
@@ -4005,7 +4001,8 @@ window.__ModuleLoader__.load({
       var needsMore = !flattenRail && (officialPins
         ? split.more.length > 0
         : split.overflow.length > 0 || split.hidden.length > 0);
-      var morePanels = officialPins ? split.more : split.overflow;
+      var morePanels = officialPins ? split.pinned.slice(split.visible.length) : split.overflow;
+      var unpinnedPanels = officialPins ? split.unpinned : [];
       var hiddenPanels = officialPins ? [] : split.hidden;
       var panelButton = function (panel) {
         return h(PanelButton, {
@@ -4066,6 +4063,7 @@ window.__ModuleLoader__.load({
             h(PanelOverflowMenu, {
               key: 'rail:more-panels',
               panels: morePanels,
+              unpinnedPanels: unpinnedPanels,
               hiddenPanels: hiddenPanels,
               officialPins: officialPins,
               dragActive: flattenRail,
@@ -4151,10 +4149,10 @@ window.__ModuleLoader__.load({
       var shadows = createShadowManager(ctx, layout, caps.officialPins);
 
       // 新版固定状态独立于组件生命周期观测：Rail 在外层 chrome，SidebarChrome
-      // 可能在侧栏折叠时晚挂载；这里直接盯宿主 nav，保证切换折叠时状态已就绪。
+      // 可能在侧栏折叠时晚挂载；优先直接订阅官方状态，不依赖 nav 的挂载时机。
       if (caps.officialPins) {
         ctx.effect(function () {
-          return installPinnedObserver(pins, panels.source);
+          return installPinnedObserver(pins, panels.source, ctx);
         }, 'fold-minimal: pinned observer');
       }
 
@@ -4196,22 +4194,12 @@ window.__ModuleLoader__.load({
           return installPanelDrag(layout, panels.source, caps.officialPins);
         });
       }, 'fold-minimal: expanded panel drag');
-      var setOfficialPinned = function (id, pinned) {
-        var action = resolveOfficialSetPinned(ctx);
-        if (!action) return false;
-        try {
-          action(id, pinned);
-          return true;
-        } catch (error) {
-          return false;
-        }
-      };
       ctx.effect(function () {
         return watchLayoutFlag(layout, 'enabled', function () {
           return installRailDrag(layout, panels.source, {
             officialPins: caps.officialPins,
             pins: pins,
-            setPinned: setOfficialPinned,
+            setPinned: function (id, pinned) { return setOfficialPinned(ctx, id, pinned); },
           });
         });
       }, 'fold-minimal: rail panel drag');
@@ -4330,7 +4318,7 @@ window.__ModuleLoader__.load({
         );
       });
 
-      // 插件详情页（Plugins → dsh-fold-minimal）里的两个组件开关。
+      // 插件详情页（Plugins → dsh-fold-minimal）里的三个组件开关。
       ctx.slots.inject('plugins.bundle.config', function () {
         return ctx.slots.register(
           {
@@ -4434,6 +4422,7 @@ window.__ModuleLoader__.load({
         placePanel: placePanel,
         reorderBucket: reorderBucket,
         dragOvershoot: dragOvershoot,
+        insertionTargetAt: insertionTargetAt,
         readBootRelease: readBootRelease,
         parseVersion: parseVersion,
         compareVersions: compareVersions,
@@ -4450,7 +4439,8 @@ window.__ModuleLoader__.load({
         installRailDrag: installRailDrag,
         installMenuReorder: installMenuReorder,
         menuRowForTarget: menuRowForTarget,
-        resolveOfficialSetPinned: resolveOfficialSetPinned,
+        resolveOfficialSidebar: resolveOfficialSidebar,
+        setOfficialPinned: setOfficialPinned,
         installSidebarMoreHover: installSidebarMoreHover,
         isPanelActive: isPanelActive,
       },

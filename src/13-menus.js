@@ -58,8 +58,6 @@
       var markerRef = React.useRef(null);
       var entriesRef = React.useRef(props.entries);
       entriesRef.current = props.entries;
-      var tRef = React.useRef(props.t);
-      tRef.current = props.t;
       var enabled = props.useLayout(function (snapshot) {
         return snapshot.enabled === true;
       });
@@ -80,7 +78,7 @@
             if (entries[entryIndex] && entries[entryIndex].pinned === false) bucket.push(entries[entryIndex].id);
           }
           reorderBucket(props.layoutStore, props.panelsSource.getSnapshot(), bucket, id, index);
-        }, tRef);
+        });
       }, [enabled]);
       return h('span', {
         ref: markerRef,
@@ -88,12 +86,6 @@
         style: { display: 'contents' },
       });
     }
-
-    /**
-     * 展开侧栏「更多」下方的缩进二级区：列出被收起的面板。
-     * 点行打开面板；拖出/入由 installPanelDrag 的事件委托处理。
-     * @param props - panels / activePanelId / t / onOpen / onReset。
-     */
 
     /** 用宿主按钮打开/关闭原生浮层；二级区展开或拖动时禁止浮层抢占操作。 */
     function installSidebarMoreHover(button, anchor, store) {
@@ -203,14 +195,13 @@
     /**
      * 在任意浮层菜单里做纵向换位：浮层由宿主 portal 渲染，行也由宿主渲染，
      * 这里只按 `idAttr` 找到行、画插入线，松手后把新顺序交给调用方。
-     * 官方的「更多」和折叠工具栏自己的「更多」共用这一个控制器。
+     * 官方「更多」在菜单内排序；折叠工具栏「更多」由 installRailDrag 接管。
      * @param menu - 浮层根节点。
      * @param idAttr - 行上的面板 id 属性（`data-dfm-id` / `data-dfm-rail-menu-id`）。
      * @param onReorder - `(id, index) => void`，index 为移除被拖行后的落点。
-     * @param tRef - 可选文案 ref（当前未使用，保留给无障碍提示扩展）。
      * @returns 清理函数。
      */
-    function installMenuReorder(menu, idAttr, onReorder, tRef) {
+    function installMenuReorder(menu, idAttr, onReorder) {
       if (!menu || typeof onReorder !== 'function') return function () {};
       var session = null;
       var indicator = createInsertionIndicator();
@@ -241,25 +232,19 @@
       function targetAt(y, draggedId) {
         var rows = rowsAt();
         if (!rows.length) return null;
-        var without = [];
-        for (var index = 0; index < rows.length; index += 1) {
-          if (rows[index].id !== draggedId) without.push(rows[index]);
-        }
-        var target = 0;
-        for (var scan = 0; scan < without.length; scan += 1) {
-          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
-        }
-        var lineY;
-        if (without.length === 0) lineY = rows[0].rect.top + rows[0].rect.height / 2;
-        else if (target === 0) lineY = without[0].rect.top - 2;
-        else if (target === without.length) lineY = without[without.length - 1].rect.bottom + 2;
-        else lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
+        var target = insertionTargetAt(rows, y, draggedId);
         return {
-          index: target,
-          lineY: lineY,
+          index: target.index,
+          lineY: target.position,
           left: rows[0].rect.left,
           width: rows[0].rect.width,
         };
+      }
+
+      function dropTargetAt(x, y, draggedId) {
+        var rect = menu.getBoundingClientRect();
+        if (x < rect.left - 12 || x > rect.right + 12 || y < rect.top - 12 || y > rect.bottom + 12) return null;
+        return targetAt(y, draggedId);
       }
 
       function resetSession() {
@@ -278,13 +263,9 @@
 
       function updateDrag(x, y) {
         if (!session || !session.active) return;
-        var rect = menu.getBoundingClientRect();
-        if (x < rect.left - 12 || x > rect.right + 12 || y < rect.top - 12 || y > rect.bottom + 12) {
-          if (indicator) indicator.hide();
-          return;
-        }
-        var target = targetAt(y, session.id);
+        var target = dropTargetAt(x, y, session.id);
         if (target && indicator) indicator.showVertical(target.left, target.width, target.lineY);
+        else if (indicator) indicator.hide();
       }
 
       function onPointerMove(event) {
@@ -317,9 +298,7 @@
       function onPointerUp(event) {
         if (!session || event.pointerId !== session.pointerId) return;
         var drag = session;
-        // 浮层是 fixed/portal 的，菜单 rect 与页面坐标偶尔会差一帧；换位只需要
-        // 纵向落点，按行中点计算即可，不再用矩形二次否决。
-        var target = drag.active ? targetAt(event.clientY, drag.id) : null;
+        var target = drag.active ? dropTargetAt(event.clientX, event.clientY, drag.id) : null;
         var active = drag.active;
         resetSession();
         if (!active) return;
@@ -341,6 +320,8 @@
 
       function onPointerDown(event) {
         if (event.button !== 0 || session) return;
+        if (document.documentElement.getAttribute('data-platform') !== 'darwin' ||
+            document.documentElement.hasAttribute(DRAG_ROOT_ATTR)) return;
         var hit = menuRowForTarget(event.target, menu, idAttr);
         if (!hit) return;
         session = {

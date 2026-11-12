@@ -131,11 +131,12 @@
      *
      * 旧版仍在此列出被收起的面板；新版这些行由官方「更多」负责，只列固定项溢出
      * 与未固定项。
-     * @param props - panels / hiddenPanels / t / usePanelInfo / onSelect /
-     *   onReorder / dragActive。
+     * @param props - panels（固定溢出项）/ unpinnedPanels / hiddenPanels /
+     *   t / usePanelInfo / onSelect / dragActive。
      */
     function PanelOverflowMenu(props) {
       var panels = Array.isArray(props.panels) ? props.panels : [];
+      var unpinnedPanels = Array.isArray(props.unpinnedPanels) ? props.unpinnedPanels : [];
       var hiddenPanels = Array.isArray(props.hiddenPanels) ? props.hiddenPanels : [];
       var openState = React.useState(false);
       var open = openState[0];
@@ -292,11 +293,14 @@
         for (var hiddenIndex = 0; hiddenIndex < hiddenPanels.length; hiddenIndex += 1) {
           if (hiddenPanels[hiddenIndex].id === info.activePanelId) return true;
         }
+        for (var unpinnedIndex = 0; unpinnedIndex < unpinnedPanels.length; unpinnedIndex += 1) {
+          if (unpinnedPanels[unpinnedIndex].id === info.activePanelId) return true;
+        }
         return false;
       });
-      var rows = panels.map(function (panel) {
+      var menuItem = function (panel) {
         return h(PanelMenuItem, {
-          key: 'overflow:' + panel.id,
+          key: 'panel:' + panel.id,
           panel: panel,
           railItem: true,
           usePanelInfo: props.usePanelInfo,
@@ -305,7 +309,19 @@
             props.onSelect(selected);
           },
         });
-      });
+      };
+      var rows = panels.map(menuItem);
+      if (unpinnedPanels.length > 0) {
+        if (rows.length > 0) rows.push(h('div', {
+          key: 'fold-minimal:unpinned-divider', className: 'DFM_menuDivider', role: 'separator',
+        }));
+        rows.push(h('div', {
+          key: 'fold-minimal:unpinned-label', className: 'DFM_menuGroup',
+        }, props.t('panels.unpinned')));
+        for (var unpinnedIndex = 0; unpinnedIndex < unpinnedPanels.length; unpinnedIndex += 1) {
+          rows.push(menuItem(unpinnedPanels[unpinnedIndex]));
+        }
+      }
       if (hiddenPanels.length > 0) {
         rows.push(
           h('div', {
@@ -322,18 +338,7 @@
           ),
         );
         for (var hiddenIndex = 0; hiddenIndex < hiddenPanels.length; hiddenIndex += 1) {
-          rows.push(
-            h(PanelMenuItem, {
-              key: 'hidden:' + hiddenPanels[hiddenIndex].id,
-              panel: hiddenPanels[hiddenIndex],
-              railItem: true,
-              usePanelInfo: props.usePanelInfo,
-              onSelect: function (selected) {
-                close();
-                props.onSelect(selected);
-              },
-            }),
-          );
+          rows.push(menuItem(hiddenPanels[hiddenIndex]));
         }
       }
 

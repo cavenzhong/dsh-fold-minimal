@@ -63,6 +63,7 @@ const {
   placePanel,
   reorderBucket,
   dragOvershoot,
+  insertionTargetAt,
   readBootRelease,
   parseVersion,
   compareVersions,
@@ -73,8 +74,11 @@ const {
   hostPanelRow,
   hostPanelRowItem,
   pinnedIdsFromLabels,
+  installPinnedObserver,
+  installMenuReorder,
   menuRowForTarget,
-  resolveOfficialSetPinned,
+  resolveOfficialSidebar,
+  setOfficialPinned,
   officialDropPlan,
   installDragCollapse,
   installPanelDrag,
@@ -1605,9 +1609,10 @@ test('新版折叠工具栏：只平铺官方固定项，未固定项进「更�
   assert.deepEqual(overflow.props.hiddenPanels, [], '新版不再维护插件自己的隐藏项');
   assert.deepEqual(
     overflow.props.panels.map((panel) => panel.id),
-    ['panel-1', 'panel-4'],
-    '「更多」包含固定项溢出与未固定项，并保持全局顺序',
+    ['panel-4'],
+    '固定溢出项单独放在前组',
   );
+  assert.deepEqual(overflow.props.unpinnedPanels.map((panel) => panel.id), ['panel-1']);
 
   const moreObserver = registered.find(
     (candidate) =>
@@ -1732,9 +1737,9 @@ test('从官方 shell.leading 注册项解析 setPinned，失败时返回 null',
       ],
     },
   };
-  assert.equal(resolveOfficialSetPinned(ctx), setPinned);
-  assert.equal(resolveOfficialSetPinned({ slots: { entries: () => [] } }), null);
-  assert.equal(resolveOfficialSetPinned({}), null);
+  assert.equal(resolveOfficialSidebar(ctx).setPinned, setPinned);
+  assert.equal(resolveOfficialSidebar({ slots: { entries: () => [] } }), null);
+  assert.equal(resolveOfficialSidebar({}), null);
 });
 
 test('跨固定边界落点：固定/取消固定意图与目标分组', () => {
@@ -1797,4 +1802,306 @@ test('新版拖拽平铺：固定区与未固定区分组展示，不再渲染�
     elements.some((element) => typeof element.type === 'function' && element.props.testId === 'more-panels'),
     false,
   );
+});
+
+test('插入线始终位于实际行间：拖动首项、中间项、末项和唯一项均不穿行', () => {
+  for (const horizontal of [false, true]) {
+    const entries = [0, 1, 2].map((id) => ({
+      id: String(id),
+      rect: { top: id * 36, bottom: id * 36 + 32, left: id * 36, right: id * 36 + 32 },
+    }));
+    for (const draggedId of ['0', '1', '2', 'external']) {
+      for (let coordinate = -10; coordinate <= 115; coordinate += 1) {
+        const target = insertionTargetAt(entries, coordinate, draggedId, horizontal);
+        const start = horizontal ? 'left' : 'top';
+        const end = horizontal ? 'right' : 'bottom';
+        assert.equal(entries.some(({ rect }) => target.position > rect[start] && target.position < rect[end]), false);
+        const expected = entries.filter(({ id, rect }) => id !== draggedId && coordinate > (rect[start] + rect[end]) / 2).length;
+        assert.equal(target.index, expected);
+      }
+    }
+    assert.deepEqual(insertionTargetAt(entries, 42, '1', horizontal), { index: 1, position: 34 });
+    assert.deepEqual(insertionTargetAt(entries, 62, '1', horizontal), { index: 1, position: 70 });
+    assert.deepEqual(insertionTargetAt(entries.slice(0, 1), 20, '0', horizontal), { index: 0, position: 34 });
+    assert.equal(insertionTargetAt([], 20, '0', horizontal), null);
+  }
+});
+
+function attachDragBody(env) {
+  const nodes = [];
+  const body = {
+    appendChild(node) { nodes.push(node); node.parentNode = body; },
+    removeChild(node) { nodes.splice(nodes.indexOf(node), 1); node.parentNode = null; },
+  };
+  env.document.body = body;
+  env.document.createElement = () => ({
+    style: {}, setAttribute() {}, appendChild() {},
+  });
+  return nodes;
+}
+
+test('展开侧栏拖动只显示插入线；折叠工具栏才创建并清理跟随图标', () => {
+  const previousDocument = globalThis.document;
+  const previousRaf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = undefined;
+  try {
+    for (const install of [installPanelDrag, installRailDrag]) {
+      const env = createPanelEnv('darwin');
+      const nodes = attachDragBody(env);
+      globalThis.document = env.document;
+      const store = createPanelLayoutStore({ enabled: true });
+      const target = install === installPanelDrag ? env.marker : env.railButton;
+      env.railButton.querySelector = () => null;
+      const dispose = install(store, { getSnapshot: () => fakePanels(2) });
+      env.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 20, clientY: 14, target });
+      env.dispatch('pointermove', { pointerId: 1, clientX: 28, clientY: 14 });
+      assert.equal(nodes.filter((node) => node.className === 'DFM_dragGhost').length, install === installRailDrag ? 1 : 0);
+      if (install === installPanelDrag) {
+        const line = nodes.find((node) => node.className === 'DFM_indicator');
+        assert.equal(line.style.display, 'block');
+        assert.equal(Number.parseFloat(line.style.top) + 6, -2);
+      }
+      env.dispatch('pointercancel', { pointerId: 1 });
+      assert.equal(nodes.filter((node) => node.className === 'DFM_dragGhost').length, 0);
+      dispose();
+      assert.equal(nodes.length, 0);
+    }
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.requestAnimationFrame = previousRaf;
+  }
+});
+
+test('官方更多：菜单外松手不提交，菜单内插入线和落点一致，非 macOS 不接管', () => {
+  const previousDocument = globalThis.document;
+  const previousRaf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = undefined;
+  try {
+    for (const platform of ['darwin', 'linux']) {
+      const env = createPanelEnv(platform);
+      const nodes = attachDragBody(env);
+      globalThis.document = env.document;
+      let down;
+      const rows = [0, 1, 2].map((index) => {
+        const row = {
+          classList: { add() {}, remove() {} },
+          getAttribute: () => 'panel-' + index,
+          matches: () => true,
+          closest: () => row,
+          getBoundingClientRect: () => ({ left: 0, right: 100, top: index * 36, bottom: index * 36 + 32, width: 100, height: 32 }),
+        };
+        return row;
+      });
+      const menu = {
+        contains: (row) => rows.includes(row),
+        querySelectorAll: () => rows,
+        getBoundingClientRect: () => ({ left: 0, right: 100, top: 0, bottom: 104 }),
+        addEventListener: (_type, fn) => { down = fn; },
+        removeEventListener() {},
+      };
+      const commits = [];
+      const dispose = installMenuReorder(menu, 'data-dfm-id', (...args) => commits.push(args));
+      const begin = () => down({ button: 0, pointerId: 1, clientX: 50, clientY: 48, target: rows[1] });
+      begin();
+      env.dispatch('pointermove', { pointerId: 1, clientX: 50, clientY: 42 });
+      if (platform === 'darwin') {
+        assert.equal(Number.parseFloat(nodes[0].style.top) + 6, 34);
+      } else {
+        assert.equal(env.listenerCount(), 0);
+      }
+      env.dispatch('pointerup', { pointerId: 1, clientX: 400, clientY: 90 });
+      assert.deepEqual(commits, []);
+      begin();
+      env.dispatch('pointermove', { pointerId: 1, clientX: 50, clientY: 90 });
+      env.dispatch('pointerup', { pointerId: 1, clientX: 50, clientY: 90 });
+      assert.deepEqual(commits, platform === 'darwin' ? [['panel-1', 2]] : []);
+      dispose();
+      assert.equal(nodes.length, 0);
+    }
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.requestAnimationFrame = previousRaf;
+  }
+});
+
+test('宿主行识别排除真实挂在 nav 下的插件二级区，避免隐藏整个 tray', () => {
+  const nav = {};
+  const tray = { parentElement: nav, style: {} };
+  const row = {
+    parentElement: tray,
+    closest: (selector) => selector === 'nav' ? nav : selector === 'button' ? row : tray,
+  };
+  const marker = { closest: () => row };
+  assert.equal(hostPanelRow(marker), null);
+  assert.equal(hostPanelRowItem(marker), null);
+  assert.equal(tray.style.display, undefined);
+});
+
+test('固定状态直接订阅官方未固定源：不依赖 DOM、同名标签或侧栏重挂载，卸载清理订阅', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = undefined;
+  const pinListeners = new Set();
+  const panelListeners = new Set();
+  let unpinned = ['panel-1'];
+  let panels = fakePanels(3).map((panel) => ({ ...panel, label: '同名菜单' }));
+  const source = {
+    getSnapshot: () => unpinned,
+    subscribe: (fn) => { pinListeners.add(fn); return () => pinListeners.delete(fn); },
+  };
+  const panelsSource = {
+    getSnapshot: () => panels,
+    subscribe: (fn) => { panelListeners.add(fn); return () => panelListeners.delete(fn); },
+  };
+  const ctx = { slots: { entries: () => [{ inject: () => ({ setPinned() {}, hooks: { entryPins: source } }) }] } };
+  const pins = createPinsStore();
+  let dispose;
+  try {
+    dispose = installPinnedObserver(pins, panelsSource, ctx);
+    assert.deepEqual(pins.getPinned(), ['panel-0', 'panel-2']);
+    unpinned = panels.map((panel) => panel.id);
+    pinListeners.forEach((fn) => fn());
+    assert.deepEqual(pins.getPinned(), []);
+    panels = [...panels, ...fakePanels(4).slice(3)];
+    panelListeners.forEach((fn) => fn());
+    assert.deepEqual(pins.getPinned(), ['panel-3']);
+    unpinned = [];
+    pinListeners.forEach((fn) => fn());
+    assert.deepEqual(pins.getPinned(), panels.map((panel) => panel.id));
+  } finally {
+    dispose?.();
+    globalThis.document = previousDocument;
+  }
+  assert.equal(pinListeners.size, 0);
+  assert.equal(panelListeners.size, 0);
+});
+
+test('版本兜底：未知版本不误判为新版，semver build metadata 不影响兼容判断', () => {
+  const previous = window.__DSH_BOOT__;
+  try {
+    for (const version of ['dev', '0.2.1+local.1', '0.2.2-rc.1+local.1']) {
+      window.__DSH_BOOT__ = { release: { version } };
+      assert.equal(createCapabilities(makeCtx([])).officialPins, false, version);
+    }
+    window.__DSH_BOOT__ = { release: { version: '0.2.2-rc.2+local.1' } };
+    assert.equal(createCapabilities(makeCtx([])).officialPins, true);
+    assert.equal(compareVersions('0.2.2+build.1', '0.2.2'), 0);
+    window.__DSH_BOOT__ = { release: { version: 'dev' }, entries: [{ id: '@deepseek-ai/dsh-client-ui-entry-customization' }] };
+    assert.equal(createCapabilities(makeCtx([])).officialPins, true);
+  } finally {
+    window.__DSH_BOOT__ = previous;
+  }
+});
+
+test('折叠更多按固定溢出/未固定分组：显示分割线和说明，各组顺序、选中与点击保持正确', () => {
+  const previousUseState = fakeReact.useState;
+  try {
+    const panels = fakePanels(5);
+    for (const scenario of [
+      { pinned: ['panel-0', 'panel-2', 'panel-3', 'panel-4'], ids: ['panel-4', 'panel-1'], divider: 1, label: true },
+      { pinned: panels.map((panel) => panel.id), ids: ['panel-3', 'panel-4'], divider: 0, label: false },
+      { pinned: ['panel-0', 'panel-1', 'panel-2'], ids: ['panel-3', 'panel-4'], divider: 0, label: true },
+      { pinned: [], ids: panels.map((panel) => panel.id), divider: 0, label: true },
+    ]) {
+      fakeReact.useState = previousUseState;
+      const { tree, selections } = renderRail({ activePanelId: scenario.ids.at(-1) }, panels, EMPTY_LAYOUT, {
+        release: '0.2.2-rc.2', pinned: scenario.pinned,
+      });
+      const overflow = flatten(tree).find((node) => Array.isArray(node.props.unpinnedPanels));
+      let stateIndex = 0;
+      fakeReact.useState = (initial) => [stateIndex++ === 0 ? true : initial, () => {}];
+      const menu = flatten(overflow.type(overflow.props));
+      const items = menu.filter((node) => node.props.panel);
+      assert.deepEqual(items.map((node) => node.props.panel.id), scenario.ids);
+      assert.equal(menu.filter((node) => node.props.role === 'separator').length, scenario.divider);
+      const labels = menu.filter((node) => node.props.className === 'DFM_menuGroup');
+      assert.deepEqual(labels.map((node) => node.children[0]), scenario.label ? ['panels.unpinned'] : []);
+      assert.equal(menu.find((node) => node.props.testId === 'more-panels').props.active, true);
+      items.at(-1).props.onSelect(items.at(-1).props.panel);
+      assert.deepEqual(selections, [scenario.ids.at(-1)]);
+    }
+  } finally {
+    fakeReact.useState = previousUseState;
+  }
+});
+
+test('固定状态 DOM 兜底跟随侧栏根替换、空固定列表与面板变化，卸载取消待执行帧', () => {
+  const previousDocument = globalThis.document;
+  const previousObserver = globalThis.MutationObserver;
+  const previousRaf = globalThis.requestAnimationFrame;
+  const previousCancel = globalThis.cancelAnimationFrame;
+  const frames = new Map();
+  const panelListeners = new Set();
+  let nextFrame = 0;
+  let mutation;
+  let disconnected = false;
+  const button = (label, popup) => ({
+    tagName: 'BUTTON',
+    getAttribute: (name) => name === 'aria-label' ? label : name === 'aria-haspopup' ? popup : null,
+  });
+  const makeRoot = (ids) => {
+    const nav = { tagName: 'NAV', children: [...ids.map((id) => button(id)), button('更多', 'menu')], querySelectorAll: () => [] };
+    return { children: [nav] };
+  };
+  let root = makeRoot(['panel-0', 'panel-2']);
+  globalThis.document = {
+    documentElement: {},
+    querySelector: () => ({ closest: () => ({ parentElement: root }) }),
+  };
+  globalThis.requestAnimationFrame = (fn) => { frames.set(++nextFrame, fn); return nextFrame; };
+  globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+  globalThis.MutationObserver = class {
+    constructor(fn) { mutation = fn; }
+    observe(target) { assert.equal(target, document.documentElement); }
+    disconnect() { disconnected = true; }
+  };
+  const flush = () => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach((fn) => fn()); };
+  const pins = createPinsStore();
+  const panelsSource = {
+    getSnapshot: () => fakePanels(3).map((panel) => ({ ...panel, label: panel.id })),
+    subscribe: (fn) => { panelListeners.add(fn); return () => panelListeners.delete(fn); },
+  };
+  let dispose;
+  try {
+    dispose = installPinnedObserver(pins, panelsSource);
+    flush();
+    assert.deepEqual(pins.getPinned(), ['panel-0', 'panel-2']);
+    root = makeRoot(['panel-1']);
+    mutation(); flush();
+    assert.deepEqual(pins.getPinned(), ['panel-1']);
+    root = makeRoot([]);
+    panelListeners.forEach((fn) => fn()); flush();
+    assert.deepEqual(pins.getPinned(), []);
+    mutation();
+    assert.equal(frames.size, 1);
+  } finally {
+    dispose?.();
+    globalThis.document = previousDocument;
+    globalThis.MutationObserver = previousObserver;
+    globalThis.requestAnimationFrame = previousRaf;
+    globalThis.cancelAnimationFrame = previousCancel;
+  }
+  assert.equal(frames.size, 0);
+  assert.equal(panelListeners.size, 0);
+  assert.equal(disconnected, true);
+});
+
+test('官方固定动作以提交后的状态确认成功，拒绝取消固定和动作异常均返回失败', () => {
+  let unpinned = [];
+  const official = {
+    setPinned(id, pinned) {
+      if (id === 'plugins') return;
+      unpinned = pinned ? unpinned.filter((item) => item !== id) : [...unpinned, id];
+    },
+    hooks: { entryPins: { getSnapshot: () => unpinned } },
+  };
+  const ctx = { slots: { entries: () => [{ inject: () => official }] } };
+  assert.equal(setOfficialPinned(ctx, 'plugins', false), false);
+  assert.deepEqual(unpinned, []);
+  assert.equal(setOfficialPinned(ctx, 'panel-1', false), true);
+  assert.deepEqual(unpinned, ['panel-1']);
+  assert.equal(setOfficialPinned(ctx, 'panel-1', true), true);
+  assert.deepEqual(unpinned, []);
+  official.setPinned = () => { throw new Error('unavailable'); };
+  assert.equal(setOfficialPinned(ctx, 'panel-1', false), false);
+  assert.equal(setOfficialPinned({}, 'panel-1', false), false);
 });
