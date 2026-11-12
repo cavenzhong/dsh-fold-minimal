@@ -9,8 +9,11 @@ import { test } from 'node:test';
 
 const fakeReact = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
+  Fragment: Symbol('Fragment'),
   Component: class Component {},
   useRef: (initial) => ({ current: initial }),
+  useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
+  useEffect: () => {},
   useLayoutEffect: () => {},
   useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
 };
@@ -48,15 +51,28 @@ const {
   moveVisibleOrder,
   replaceVisibleOrder,
   replaceHiddenOrder,
+  replaceBucketOrder,
   panelsInOrder,
   panelIdsOf,
   sanitizeLayoutPrefs,
   createPanelLayoutStore,
   createShadowPanel,
   createShadowManager,
+  createPinsStore,
   readLayoutPrefs,
   placePanel,
+  reorderBucket,
   dragOvershoot,
+  readBootRelease,
+  parseVersion,
+  compareVersions,
+  hasOfficialMore,
+  createCapabilities,
+  splitOfficialPanels,
+  hoverBridgeContains,
+  hostPanelRow,
+  hostPanelRowItem,
+  pinnedIdsFromLabels,
   installDragCollapse,
   installPanelDrag,
   installRailDrag,
@@ -64,7 +80,7 @@ const {
   isPanelActive,
 } = exports.__test;
 
-const EMPTY_LAYOUT = { enabled: false, order: [], hidden: [], trayOpen: false };
+const EMPTY_LAYOUT = { enabled: false, order: [], hidden: [], trayOpen: false, backEnabled: true };
 
 function makeCtx(entries) {
   return { slots: { entriesOfSlot: (name) => (name === PANEL_SLOT ? entries : []) } };
@@ -111,7 +127,7 @@ test('isPanelActive 只在主区域被全局面板占用时为真', () => {
  * 用最小客户端上下文跑一遍真实的 apply()，再渲染它注册到 shell.leading 的组件。
  * 覆盖 apply → slot 注册 → inject → LeadingRail 这条运行时链路（不需要 DOM）。
  */
-function renderRail(panelInfo, panels = [], layoutSnapshot = EMPTY_LAYOUT) {
+function renderRail(panelInfo, panels = [], layoutSnapshot = EMPTY_LAYOUT, options = {}) {
   const selections = [];
   const registered = [];
   const ctx = {
@@ -121,6 +137,7 @@ function renderRail(panelInfo, panels = [], layoutSnapshot = EMPTY_LAYOUT) {
       subscribe: () => () => {},
     },
     slots: {
+      spec: () => undefined,
       entries: () => [],
       entriesOfSlot: () => [],
       subscribe: () => () => {},
@@ -138,7 +155,21 @@ function renderRail(panelInfo, panels = [], layoutSnapshot = EMPTY_LAYOUT) {
     shortcuts: { catalog: { getSnapshot: () => [], subscribe: () => () => {} } },
     get: () => undefined,
   };
-  exports.apply(ctx);
+  const previousBoot = globalThis.window.__DSH_BOOT__;
+  if (options.release) {
+    globalThis.window.__DSH_BOOT__ = {
+      release: { version: options.release },
+      entries: options.entries ?? [],
+    };
+  }
+  try {
+    exports.apply(ctx);
+  } finally {
+    if (options.release) {
+      if (previousBoot === undefined) delete globalThis.window.__DSH_BOOT__;
+      else globalThis.window.__DSH_BOOT__ = previousBoot;
+    }
+  }
   const entry = registered.find((candidate) => candidate.options.name === SLOT);
   const injected = entry.options.inject();
   const tree = entry.component({
@@ -148,8 +179,9 @@ function renderRail(panelInfo, panels = [], layoutSnapshot = EMPTY_LAYOUT) {
     usePanels: (selector) => selector(panels),
     useShortcuts: () => undefined,
     useLayout: (selector) => selector(layoutSnapshot),
+    usePins: (selector) => selector({ pinned: options.pinned ?? null }),
   });
-  return { tree, selections, registered };
+  return { tree, selections, registered, injected };
 }
 
 function flatten(node, out = []) {
@@ -363,6 +395,7 @@ test('sanitizeLayoutPrefs：非法值回落到关闭，id 去重且丢弃空值'
     order: [],
     hidden: [],
     toolbar: true,
+    back: true,
   });
   assert.deepEqual(
     sanitizeLayoutPrefs({
@@ -370,7 +403,7 @@ test('sanitizeLayoutPrefs：非法值回落到关闭，id 去重且丢弃空值'
       order: ['a', 'a', '', 3, 'b'],
       hidden: ['c', null, 'c'],
     }),
-    { enabled: false, order: ['a', 'b'], hidden: ['c'], toolbar: true },
+    { enabled: false, order: ['a', 'b'], hidden: ['c'], toolbar: true, back: true },
   );
   assert.equal(sanitizeLayoutPrefs({ enabled: true }).enabled, true);
   assert.equal(sanitizeLayoutPrefs({ toolbar: false }).toolbar, false);
@@ -385,6 +418,7 @@ test('面板排序 store：开关/顺序/收起/重置，相同顺序不重复�
   assert.deepEqual(store.getSnapshot(), {
     enabled: true,
     toolbarEnabled: true,
+    backEnabled: true,
     order: ['b'],
     hidden: ['a'],
     trayOpen: false,
@@ -443,35 +477,67 @@ test('apply 注册展开态 chrome、插件页组件开关与工具栏 hooks', (
   assert.ok(settings, '组件开关应注册到插件详情页 plugins.bundle.config');
   const settingsProps = settings.options.inject();
   assert.equal(typeof settingsProps.setToolbarEnabled, 'function');
+  assert.equal(typeof settingsProps.setBackEnabled, 'function');
   assert.equal(typeof settingsProps.setLayoutEnabled, 'function');
 
-  // 渲染两个开关行：折叠菜单（默认开）+ 面板挪位与折叠（默认关）。
+  // 渲染三个开关行：折叠菜单（默认开）+ 返回会话（默认开）+ 面板挪位与折叠（默认关）。
   const changes = [];
   const injected = settings.options.inject();
   const tree = settings.component({
     ...injected,
     t: (key) => key,
-    useLayout: (selector) => selector({ ...EMPTY_LAYOUT, toolbarEnabled: true }),
+    useLayout: (selector) => selector({ ...EMPTY_LAYOUT, toolbarEnabled: true, backEnabled: true }),
     setToolbarEnabled: (next) => changes.push(['toolbar', next]),
+    setBackEnabled: (next) => changes.push(['back', next]),
     setLayoutEnabled: (next) => changes.push(['layout', next]),
   });
   const switches = flatten(tree).filter(
     (element) =>
       typeof element.type === 'function' &&
       element.props &&
-      (element.props.label === 'settings.toolbar.title' || element.props.label === 'layout.title'),
+      ['settings.toolbar.title', 'settings.back.title', 'layout.title'].includes(element.props.label),
   );
-  assert.equal(switches.length, 2, '插件设置里应显示两个组件开关');
+  assert.equal(switches.length, 3, '插件设置里应显示三个组件开关');
   const toolbarSwitch = switches.find((element) => element.props.label === 'settings.toolbar.title');
+  const backSwitch = switches.find((element) => element.props.label === 'settings.back.title');
   const layoutSwitch = switches.find((element) => element.props.label === 'layout.title');
   assert.equal(toolbarSwitch.props.checked, true, '折叠菜单默认开启');
+  assert.equal(backSwitch.props.checked, true, '返回会话默认开启');
   assert.equal(layoutSwitch.props.checked, false, '面板挪位与折叠默认关闭');
   toolbarSwitch.props.onChange(false);
+  backSwitch.props.onChange(false);
   layoutSwitch.props.onChange(true);
   assert.deepEqual(changes, [
     ['toolbar', false],
+    ['back', false],
     ['layout', true],
   ]);
+});
+
+test('插件设置：新版使用官方更多文案并显示检测到的 DSH 版本', () => {
+  const { registered } = renderRail({ activePanelId: null });
+  const settings = registered.find(
+    (candidate) =>
+      candidate.options.name === 'plugins.bundle.config' &&
+      candidate.options.key === 'dsh-fold-minimal',
+  );
+  const tree = settings.component({
+    ...settings.options.inject(),
+    officialPins: true,
+    releaseVersion: '0.2.2-rc.2',
+    t: (key) => key,
+    useLayout: (selector) => selector({ ...EMPTY_LAYOUT, enabled: true }),
+    setToolbarEnabled: () => {},
+    setBackEnabled: () => {},
+    setLayoutEnabled: () => {},
+  });
+  const elements = flatten(tree);
+  const labels = elements
+    .filter((element) => element.type === 'div' && element.props.className === 'DFM_setTitle')
+    .map((element) => element.children.join(''));
+  assert.deepEqual(labels, ['settings.toolbar.title', 'settings.back.title', 'layout.title.new']);
+  const note = elements.find((element) => element.props.className === 'DFM_compatNote');
+  assert.equal(note.children.join(''), 'DSH 0.2.2-rc.2 · compat.official');
 });
 
 test('折叠态工具栏：开启排序与折叠后，收起项进 More；已提交顺序立即反映到工具栏', () => {
@@ -1117,7 +1183,7 @@ test('布局状态去重：重复开关/顺序/显隐不写存储，临时拖动
 test('存储受限：cookie/localStorage 属性读取或写入抛错不阻止加载与内存更新', () => {
   const storage = Object.getOwnPropertyDescriptor(window, 'localStorage');
   const previousDocument = globalThis.document;
-  const fallback = { enabled: true, toolbar: false, order: ['b', 'a'], hidden: ['b'] };
+  const fallback = { enabled: true, toolbar: false, back: true, order: ['b', 'a'], hidden: ['b'] };
   try {
     globalThis.document = { get cookie() { throw new Error('cookie blocked'); }, set cookie(value) { throw new Error('cookie blocked'); } };
     Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: () => JSON.stringify(fallback) } });
@@ -1128,7 +1194,7 @@ test('存储受限：cookie/localStorage 属性读取或写入抛错不阻止加
     Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('storage blocked'); } });
     assert.equal(readLayoutPrefs().enabled, false, '有效 cookie 优先，不触碰镜像');
     globalThis.document = { get cookie() { throw new Error('cookie blocked'); }, set cookie(value) { throw new Error('cookie blocked'); } };
-    assert.deepEqual(readLayoutPrefs(), { enabled: false, toolbar: true, order: [], hidden: [] });
+    assert.deepEqual(readLayoutPrefs(), { enabled: false, toolbar: true, back: true, order: [], hidden: [] });
     const store = createPanelLayoutStore(readLayoutPrefs());
     assert.doesNotThrow(() => store.setEnabled(true));
     assert.equal(store.getSnapshot().enabled, true);
@@ -1386,4 +1452,258 @@ test('影子图标只订阅自己的隐藏布尔值，拖拽/二级区/顺序变
     unsubscribe?.();
     fakeReact.useSyncExternalStore = previousHook;
   }
+});
+
+
+/* ─────────────── 0.2.2 官方固定菜单兼容：新增纯逻辑 ─────────────── */
+
+test('版本检测：prerelease 比较、boot release 与官方 entry-customization 探测', () => {
+  assert.equal(compareVersions('0.2.2-rc.2', '0.2.2-rc.1') > 0, true);
+  assert.equal(compareVersions('0.2.2', '0.2.2-rc.9') > 0, true);
+  assert.equal(compareVersions('0.2.1', '0.2.2-rc.2') < 0, true);
+  assert.equal(compareVersions('0.2.2-rc.2', '0.2.2-rc.2'), 0);
+  assert.deepEqual(parseVersion('v0.2.2-rc.2'), { parts: [0, 2, 2], pre: ['rc', '2'] });
+  assert.equal(parseVersion('dev'), null);
+
+  const previous = globalThis.window.__DSH_BOOT__;
+  try {
+    globalThis.window.__DSH_BOOT__ = {
+      release: { version: '0.2.2-rc.2' },
+      entries: [{ id: '@deepseek-ai/dsh-client-ui-entry-customization' }],
+    };
+    assert.deepEqual(readBootRelease(), { version: '0.2.2-rc.2', commit: undefined });
+    const caps = createCapabilities(makeCtx([]));
+    assert.equal(caps.officialPins, true);
+    assert.equal(caps.releaseVersion, '0.2.2-rc.2');
+
+    globalThis.window.__DSH_BOOT__ = {
+      release: { version: '0.2.2-rc.1' },
+      entries: [],
+    };
+    assert.equal(createCapabilities(makeCtx([])).officialPins, false);
+    assert.equal(hasOfficialMore({ slots: { entriesOfSlot: () => [{ options: { id: 'entry-customization' } }] } }), true);
+  } finally {
+    if (previous === undefined) delete globalThis.window.__DSH_BOOT__;
+    else globalThis.window.__DSH_BOOT__ = previous;
+  }
+});
+
+test('新版切分：只平铺固定项，未固定项与溢出项一起进「更多」', () => {
+  const panels = fakePanels(6);
+  const fivePinned = splitOfficialPanels(panels.slice(0, 5), panels.slice(0, 5).map((panel) => panel.id), 4);
+  assert.deepEqual(fivePinned.visible.map((panel) => panel.id), ['panel-0', 'panel-1', 'panel-2']);
+  assert.deepEqual(fivePinned.more.map((panel) => panel.id), ['panel-3', 'panel-4']);
+
+  const mixed = splitOfficialPanels(panels, ['panel-0', 'panel-1', 'panel-2', 'panel-3'], 4);
+  assert.deepEqual(mixed.visible.map((panel) => panel.id), ['panel-0', 'panel-1', 'panel-2']);
+  assert.deepEqual(mixed.more.map((panel) => panel.id), ['panel-3', 'panel-4', 'panel-5']);
+  assert.deepEqual(mixed.unpinned.map((panel) => panel.id), ['panel-4', 'panel-5']);
+
+  const spare = splitOfficialPanels(panels.slice(0, 3), ['panel-0', 'panel-1'], 4);
+  assert.deepEqual(spare.visible.map((panel) => panel.id), ['panel-0', 'panel-1']);
+  assert.deepEqual(spare.more.map((panel) => panel.id), ['panel-2']);
+
+  const unknown = splitOfficialPanels(panels.slice(0, 5), null, 4);
+  assert.deepEqual(unknown.visible.map((panel) => panel.id), ['panel-0', 'panel-1', 'panel-2']);
+  assert.deepEqual(unknown.more.map((panel) => panel.id), ['panel-3', 'panel-4']);
+
+  const nonePinned = splitOfficialPanels(panels.slice(0, 3), [], 4);
+  assert.deepEqual(nonePinned.visible, []);
+  assert.deepEqual(nonePinned.more.map((panel) => panel.id), ['panel-0', 'panel-1', 'panel-2']);
+});
+
+test('分组换位：只改目标分组，组外位置不动', () => {
+  assert.deepEqual(
+    replaceBucketOrder(['a', 'b', 'c', 'd', 'e'], ['a', 'c', 'e'], ['e', 'a', 'c']),
+    ['e', 'b', 'a', 'd', 'c'],
+  );
+  assert.deepEqual(replaceBucketOrder(['a', 'b'], ['a'], ['a', 'b']), ['a', 'b']);
+
+  const store = createPanelLayoutStore({ enabled: true, order: [], hidden: [] });
+  const panels = fakePanels(4);
+  assert.equal(reorderBucket(store, panels, ['panel-0', 'panel-2'], 'panel-2', 0), true);
+  assert.deepEqual(store.getSnapshot().order, ['panel-2', 'panel-1', 'panel-0', 'panel-3']);
+  assert.equal(reorderBucket(store, panels, ['missing'], 'panel-0', 0), false);
+});
+
+test('固定状态 store：官方 entries 权威回写、DOM 回写和去重', () => {
+  const pins = createPinsStore();
+  assert.equal(pins.getPinned(), null);
+  const panels = fakePanels(3);
+  pins.setFromEntries([
+    { id: 'panel-0', pinned: true },
+    { id: 'panel-1', pinned: false },
+    { id: 'panel-2', pinned: true },
+  ], panels);
+  assert.deepEqual(pins.getPinned(), ['panel-0', 'panel-2']);
+  pins.setFromDom(panels, ['panel-0', 'panel-1']);
+  assert.deepEqual(pins.getPinned(), ['panel-0', 'panel-1']);
+  pins.setPinned(['panel-0', 'panel-0', '', null, 'panel-1']);
+  assert.deepEqual(pins.getPinned(), ['panel-0', 'panel-1']);
+});
+
+test('悬停走廊：按钮与 portal 浮层之间的 6px 间隙仍算命中', () => {
+  const button = { left: 0, right: 28, top: 0, bottom: 28 };
+  const menu = { left: 0, right: 180, top: 34, bottom: 100 };
+  assert.equal(hoverBridgeContains(14, 31, button, menu), true);
+  assert.equal(hoverBridgeContains(14, 14, button, menu), true);
+  assert.equal(hoverBridgeContains(14, 60, button, menu), true);
+  assert.equal(hoverBridgeContains(200, 60, button, menu), false);
+  assert.equal(hoverBridgeContains(14, 200, button, menu), false);
+});
+
+test('宿主行识别兼容 0.2.2 的 panelEntry 包装，提交排序时仍以按钮为行', () => {
+  const nav = { tagName: 'NAV', parentElement: null };
+  const wrapper = { tagName: 'DIV', parentElement: nav };
+  const button = {
+    tagName: 'BUTTON',
+    parentElement: wrapper,
+    closest(selector) {
+      if (selector === 'button') return button;
+      if (selector === 'nav') return nav;
+      return null;
+    },
+  };
+  const marker = {
+    closest(selector) {
+      return selector === 'button' ? button : null;
+    },
+  };
+  assert.equal(hostPanelRow(marker), button);
+  assert.equal(hostPanelRowItem(marker), wrapper);
+});
+
+test('新版折叠工具栏：只平铺官方固定项，未固定项进「更多」', () => {
+  const layout = { enabled: true, order: [], hidden: [], trayOpen: false, backEnabled: true };
+  const panels = fakePanels(5);
+  const pinned = ['panel-0', 'panel-2', 'panel-3', 'panel-4'];
+  const { tree, registered } = renderRail(
+    { activePanelId: null },
+    panels,
+    layout,
+    { release: '0.2.2-rc.2', pinned },
+  );
+  const elements = flatten(tree);
+  const buttons = elements.filter((element) => element.props.panel !== undefined);
+  assert.deepEqual(
+    buttons.map((element) => element.props.panel.id),
+    ['panel-0', 'panel-2', 'panel-3'],
+    '固定项超过 4 个时保留前 3 个平铺',
+  );
+  const overflow = elements.find(
+    (element) => typeof element.type === 'function' && Array.isArray(element.props.hiddenPanels),
+  );
+  assert.ok(overflow, '新版应保留「更多」入口');
+  assert.equal(overflow.props.officialPins, true);
+  assert.deepEqual(overflow.props.hiddenPanels, [], '新版不再维护插件自己的隐藏项');
+  assert.deepEqual(
+    overflow.props.panels.map((panel) => panel.id),
+    ['panel-1', 'panel-4'],
+    '「更多」包含固定项溢出与未固定项，并保持全局顺序',
+  );
+
+  const moreObserver = registered.find(
+    (candidate) =>
+      candidate.options.name === 'sidebar.panellist.actions' &&
+      candidate.options.id === 'fold-minimal.more-observer',
+  );
+  assert.ok(moreObserver, '新版应在官方「更多」注册无渲染探针');
+  const oldAnchor = registered.find(
+    (candidate) =>
+      candidate.options.name === 'sidebar.panellist.actions' &&
+      candidate.options.id === 'fold-minimal.more-anchor',
+  );
+  assert.equal(oldAnchor, undefined, '新版不应再注册插件自己的收起分组');
+});
+
+test('返回会话独立开关：关闭后折叠态与展开态入口都隐藏', () => {
+  const panels = fakePanels(2);
+  const active = renderRail(
+    { activePanelId: 'plugins' },
+    panels,
+    { enabled: false, order: [], hidden: [], backEnabled: false },
+  );
+  assert.equal(railButton(flatten(active.tree), 'back-session'), undefined);
+
+  const enabled = renderRail(
+    { activePanelId: 'plugins' },
+    panels,
+    { enabled: false, order: [], hidden: [], backEnabled: true },
+  );
+  assert.ok(railButton(flatten(enabled.tree), 'back-session'));
+});
+
+test('新版固定状态未知时先按全部固定展示，观测到后再收进「更多」', () => {
+  const panels = fakePanels(4);
+  const layout = { enabled: true, order: [], hidden: [], backEnabled: true };
+  const unknown = flatten(
+    renderRail({ activePanelId: null }, panels, layout, {
+      release: '0.2.2-rc.2',
+      pinned: null,
+    }).tree,
+  ).filter((element) => element.props.panel !== undefined);
+  assert.deepEqual(
+    unknown.map((element) => element.props.panel.id),
+    ['panel-0', 'panel-1', 'panel-2', 'panel-3'],
+  );
+  const known = flatten(
+    renderRail({ activePanelId: null }, panels, layout, {
+      release: '0.2.2-rc.2',
+      pinned: ['panel-0', 'panel-1', 'panel-2'],
+    }).tree,
+  ).filter((element) => element.props.panel !== undefined);
+  assert.deepEqual(
+    known.map((element) => element.props.panel.id),
+    ['panel-0', 'panel-1', 'panel-2'],
+  );
+});
+
+
+test('无影子标记时按 aria-label 与面板顺序反推固定项', () => {
+  const button = (label, popup) => ({
+    tagName: 'BUTTON',
+    getAttribute(name) {
+      if (name === 'aria-label') return label;
+      if (name === 'aria-haspopup') return popup;
+      return null;
+    },
+  });
+  const item = (child) => ({ tagName: 'DIV', querySelector: () => child });
+  const nav = {
+    children: [
+      item(button('插件')),
+      item(button('自动化任务')),
+      item(button('更多面板', 'menu')),
+    ],
+  };
+  const panels = [
+    { id: 'plugins', label: '插件' },
+    { id: 'obsidian', label: 'Obsidian MEMO' },
+    { id: 'schedules', label: '自动化任务' },
+  ];
+  assert.deepEqual(pinnedIdsFromLabels(nav, panels), ['plugins', 'schedules']);
+  nav.children = [item(button('插件')), item(button('Obsidian MEMO')), item(button('自动化任务'))];
+  assert.deepEqual(pinnedIdsFromLabels(nav, panels), ['plugins', 'obsidian', 'schedules']);
+});
+
+
+test('折叠「更多」浮层拖动回调使用注入的 layoutStore，不再引用未定义变量', () => {
+  const panels = fakePanels(5);
+  const layout = { enabled: true, order: [], hidden: [], backEnabled: true };
+  const pinned = panels.map((panel) => panel.id);
+  const { tree, injected } = renderRail(
+    { activePanelId: null },
+    panels,
+    layout,
+    { release: '0.2.2-rc.2', pinned },
+  );
+  const overflow = flatten(tree).find(
+    (element) => typeof element.type === 'function' && typeof element.props.onReorder === 'function',
+  );
+  assert.ok(overflow, '「更多」浮层应拿到拖动回调');
+  assert.doesNotThrow(() => overflow.props.onReorder('panel-4', 0));
+  assert.deepEqual(
+    injected.layoutStore.getSnapshot().order,
+    ['panel-0', 'panel-1', 'panel-2', 'panel-4', 'panel-3'],
+  );
 });

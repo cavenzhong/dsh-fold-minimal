@@ -64,6 +64,16 @@ window.__ModuleLoader__.load({
      */
     var PANEL_SLOTS = 4;
     /**
+     * 0.2.2 起官方在侧栏「更多」里管理面板的固定/取消固定。这个注册者由
+     * `@deepseek-ai/dsh-client-ui-entry-customization` 提供；它存在时，
+     * 「收纳」由官方负责，本插件不再维护第二套隐藏状态。
+     */
+    var OFFICIAL_MORE_ID = 'entry-customization';
+    /** 官方固定菜单「更多」首次随该版本交付；用作无法读取 boot 信息时的兜底。 */
+    var OFFICIAL_MORE_RELEASE = '0.2.2-rc.2';
+    /** 提供官方「更多」固定/取消固定的 Client 包；boot 图里出现它即说明是新版。 */
+    var OFFICIAL_MORE_PACKAGE = '@deepseek-ai/dsh-client-ui-entry-customization';
+    /**
      * 拖拽过冲阈值（px）：松手时的渲染列宽比指针期望列宽还大这么多，才算
      * 「已经拖到最小、还想继续往左」。取 80 让「拖到最小」和「触发折叠」之
      * 间留出明显的距离，避免贴边时误触；不写死宿主的最小宽度，宿主改范围也不失效。
@@ -71,7 +81,7 @@ window.__ModuleLoader__.load({
     var DRAG_COLLAPSE_OVERSHOOT = 80;
     /** 悬停意图：进入时的展开延迟与离开时的收回延迟（ms）。 */
     var MENU_OPEN_DELAY = 80;
-    var MENU_CLOSE_DELAY = 120;
+    var MENU_CLOSE_DELAY = 180;
     /**
      * 拖拽中「松手会折叠」的指针：向左箭头 + 左侧竖线，线条粗细与缩放箭头一致。
      * 深浅主题各一支：浅色主题黑字形 + 白描边，深色主题白字形 + 黑描边。
@@ -106,6 +116,8 @@ window.__ModuleLoader__.load({
     var TRAY_ID_ATTR = 'data-dfm-tray-id';
     /** 宿主「更多」行（nav 直接子元素）上的标记，用来定位二级区与 chevron。 */
     var MORE_ROW_ATTR = 'data-dfm-more-row';
+    /** 折叠工具栏「更多」浮层里每一行的面板 id（portal 后仍能作为拖动起点）。 */
+    var RAIL_MENU_ID_ATTR = 'data-dfm-rail-menu-id';
     /** 拖拽悬停到二级区时的高亮标记。 */
     var DROP_ATTR = 'data-dfm-drop';
     /** 正在拖拽面板行时挂在 `<html>` 上的标记（禁选中、换指针）。 */
@@ -141,9 +153,15 @@ window.__ModuleLoader__.load({
       'session.back.label': '返回会话',
       'panels.more': '更多面板',
       'layout.title': '面板挪位与折叠',
-      'layout.description': '0.4 新增：按住拖动面板调整顺序，蓝色插入线提示落点；展开侧栏与折叠工具栏同步；把面板拖进「更多」可收起，再拖回恢复。',
+      'layout.description': '按住拖动面板调整顺序，蓝色插入线提示落点；展开侧栏与折叠工具栏同步；把面板拖进「更多」可收起，再拖回恢复。',
+      'layout.title.new': '面板挪位',
+      'layout.description.new': '按住拖动面板调整顺序，蓝色插入线提示落点；展开侧栏、折叠工具栏与官方「更多」共享同一顺序。新版收纳由官方「更多」负责：在「更多」里固定或取消固定面板，本插件不再维护第二套隐藏状态。',
       'settings.toolbar.title': '折叠菜单',
-      'settings.toolbar.desc': '原有功能：侧栏折叠后在窗口左上角显示面板图标；拖到最窄继续左拖可收起；返回会话按钮。',
+      'settings.toolbar.desc': '折叠侧栏后在窗口左上角显示面板工具栏；拖到最窄继续左拖可收起侧栏。',
+      'settings.back.title': '返回会话按钮',
+      'settings.back.desc': '打开全局面板时，在折叠工具栏和展开侧栏顶部显示「返回会话」；回到会话后自动隐藏。关闭后两处入口一起隐藏，其余按钮不受影响。',
+      'compat.official': '兼容模式：官方固定菜单与「更多」',
+      'compat.legacy': '兼容模式：旧版插件隐藏与「更多」二级区',
       'layout.reset': '恢复默认排序',
       'tray.label': '已收起的面板',
       'tray.empty': '把上面的面板拖到这里收起',
@@ -160,9 +178,15 @@ window.__ModuleLoader__.load({
       'session.back.label': 'Back to session',
       'panels.more': 'More panels',
       'layout.title': 'Panel reorder & fold',
-      'layout.description': 'New in 0.4: drag a panel to reorder it (a blue insertion line shows the drop position); the expanded list and the collapsed toolbar share one order. Drag a panel into More to put it away, and drag it back to restore.',
+      'layout.description': 'Drag a panel to reorder it (a blue insertion line shows the drop position); the expanded list and the collapsed toolbar share one order. Drag a panel into More to put it away, and drag it back to restore.',
+      'layout.title.new': 'Panel reorder',
+      'layout.description.new': 'Drag a panel to reorder it (a blue insertion line shows the drop position); the expanded list, collapsed toolbar, and the official More menu share one order. The official More menu now owns hiding: pin or unpin a panel there; this plugin no longer keeps a second hidden state.',
       'settings.toolbar.title': 'Collapsed menu',
-      'settings.toolbar.desc': 'Original component: maps panel icons to the top-left toolbar when the sidebar is collapsed; dragging past the minimum width collapses it; back-to-session buttons.',
+      'settings.toolbar.desc': 'Map panel icons to the top-left toolbar when the sidebar is collapsed; drag past the minimum width to collapse it.',
+      'settings.back.title': 'Back-to-session button',
+      'settings.back.desc': 'While a global panel is open, show Back to session in the collapsed toolbar and at the top of the expanded sidebar. It hides in a session, and turning this off hides both entries without affecting other controls.',
+      'compat.official': 'Compatibility mode: official pinned menu and More',
+      'compat.legacy': 'Compatibility mode: legacy plugin hide and More tray',
       'layout.reset': 'Reset panel order',
       'tray.label': 'Hidden panels',
       'tray.empty': 'Drag a panel here to put it away',
@@ -207,6 +231,11 @@ window.__ModuleLoader__.load({
       '.DFM_menuItem:hover,.DFM_menuItem.DFM_active{background:var(--dsw-alias-interactive-bg-hover)}',
       '.DFM_menuItem:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid ',
       'var(--dsw-focus-ring-color,var(--dsw-alias-brand-primary));outline-offset:-2px}',
+      '.DFM_menuItem[' + RAIL_MENU_ID_ATTR + ']{cursor:grab}',
+      '.DFM_menuItem.DFM_rowDragging{opacity:.5}',
+      // 折叠工具栏的「更多」浮层挂到 body：避免被主面板的层叠上下文/标题栏裁切，
+      // 也让悬停区域不再依赖按钮自身的盒子。
+      '.DFM_menu[data-dfm-menu-portal="true"]{position:fixed;z-index:100010;max-height:min(60vh,420px);overflow:auto}',
       '.DFM_menuLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       // 拖拽进入「松手即折叠」的距离后，指针换成向左收起的形状（深浅主题各一支）。
       'html[' + ARMED_ATTR + '],html[' + ARMED_ATTR + '] *{cursor:' + ARMED_CURSOR_LIGHT + ' !important}',
@@ -266,6 +295,7 @@ window.__ModuleLoader__.load({
       '.DFM_setText{min-width:0}',
       '.DFM_setTitle{font-size:14px;line-height:20px}',
       '.DFM_setDesc{margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}',
+      '.DFM_compatNote{margin-top:12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}',
       // Switch 直接照宿主 primitive 的样式复制，只用主题 token。
       '.DFM_switch{box-sizing:border-box;position:relative;flex:0 0 auto;width:36px;height:20px;padding:2px;',
       'border:0;border-radius:999px;corner-shape:round;background:var(--dsw-alias-border-l3);cursor:pointer}',
@@ -557,6 +587,8 @@ window.__ModuleLoader__.load({
         hidden: clean(source.hidden),
         // 原有「折叠菜单」组件默认开启；只有显式保存为 false 才关闭。
         toolbar: source.toolbar !== false,
+        // 「返回会话」独立开关，默认开启；旧存档没有该字段时按开启处理。
+        back: source.back !== false,
       };
     }
 
@@ -655,6 +687,7 @@ window.__ModuleLoader__.load({
       var snapshot = {
         enabled: prefs.enabled,
         toolbarEnabled: prefs.toolbar,
+        backEnabled: prefs.back,
         order: prefs.order,
         hidden: prefs.hidden,
         trayOpen: false,
@@ -687,6 +720,7 @@ window.__ModuleLoader__.load({
             order: next.order,
             hidden: next.hidden,
             toolbar: next.toolbarEnabled,
+            back: next.backEnabled,
           });
         }
         notify();
@@ -719,6 +753,9 @@ window.__ModuleLoader__.load({
         },
         setToolbarEnabled: function (enabled) {
           patch({ toolbarEnabled: enabled === true }, true);
+        },
+        setBackEnabled: function (enabled) {
+          patch({ backEnabled: enabled === true }, true);
         },
         setOrder: function (order) {
           patch({ order: sanitizeLayoutPrefs({ order: order }).order }, true);
@@ -789,6 +826,341 @@ window.__ModuleLoader__.load({
       return width - (startWidth + (endX - startX));
     }
 
+    /* ─────────────── 版本检测：官方固定菜单 / 「更多」兼容模式 ─────────────── */
+
+    /**
+     * 读取 Host 注入的 release 信息。
+     *
+     * `window.__DSH_BOOT__` 是 Web 启动协议里的公开入口，`release.version`
+     * 由 Host 在打包时写入；开发态或自定义组合可能没有，此时返回 undefined。
+     * @returns `{ version, commit? }` 或 undefined。
+     */
+    function readBootRelease() {
+      try {
+        var boot = typeof window !== 'undefined' ? window.__DSH_BOOT__ : undefined;
+        var release = boot && boot.release;
+        if (release && typeof release.version === 'string' && release.version.length > 0) {
+          return {
+            version: release.version,
+            commit: typeof release.commit === 'string' ? release.commit : undefined,
+          };
+        }
+      } catch (error) {
+        // 启动协议被替换时不要影响插件加载。
+      }
+      return undefined;
+    }
+
+    /**
+     * boot 图里是否加载了官方「更多」实现包。
+     * 这比 release.version 更直接：自定义版本号或开发构建也能判定。
+     * @returns 是否出现 entry-customization。
+     */
+    function bootHasOfficialMore() {
+      try {
+        var boot = typeof window !== 'undefined' ? window.__DSH_BOOT__ : undefined;
+        var entries = boot && Array.isArray(boot.entries) ? boot.entries : [];
+        for (var index = 0; index < entries.length; index += 1) {
+          var entry = entries[index];
+          if (entry && entry.id === OFFICIAL_MORE_PACKAGE) return true;
+        }
+      } catch (error) {
+        // 启动图不可读时交给注册者/版本兜底。
+      }
+      return false;
+    }
+
+    /**
+     * 解析 `major.minor.patch[-pre]`；无法解析时返回 null。
+     * @param value - 版本字符串。
+     * @returns `{ parts, pre }`。
+     */
+    function parseVersion(value) {
+      if (typeof value !== 'string') return null;
+      var match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(value.trim());
+      if (!match) return null;
+      return {
+        parts: [Number(match[1]), Number(match[2]), Number(match[3])],
+        pre: match[4] ? match[4].split('.') : [],
+      };
+    }
+
+    /**
+     * 比较两个 semver 字符串（含 prerelease），用于版本兜底判断。
+     * @param left - 左侧版本。
+     * @param right - 右侧版本。
+     * @returns <0 / 0 / >0；无法解析时按 0 处理。
+     */
+    function compareVersions(left, right) {
+      var a = parseVersion(left);
+      var b = parseVersion(right);
+      if (!a || !b) return 0;
+      for (var index = 0; index < 3; index += 1) {
+        if (a.parts[index] !== b.parts[index]) return a.parts[index] - b.parts[index];
+      }
+      // 没有 prerelease 的正式版高于同号 prerelease。
+      if (a.pre.length === 0 && b.pre.length === 0) return 0;
+      if (a.pre.length === 0) return 1;
+      if (b.pre.length === 0) return -1;
+      var length = Math.max(a.pre.length, b.pre.length);
+      for (var preIndex = 0; preIndex < length; preIndex += 1) {
+        var x = a.pre[preIndex];
+        var y = b.pre[preIndex];
+        if (x === undefined) return -1;
+        if (y === undefined) return 1;
+        var xNumber = /^\d+$/.test(x);
+        var yNumber = /^\d+$/.test(y);
+        if (xNumber && yNumber) {
+          if (Number(x) !== Number(y)) return Number(x) - Number(y);
+        } else if (xNumber !== yNumber) {
+          return xNumber ? -1 : 1;
+        } else if (x !== y) {
+          return x < y ? -1 : 1;
+        }
+      }
+      return 0;
+    }
+
+    /**
+     * 官方「更多」注册者是否已出现。
+     * @param ctx - 客户端根上下文。
+     * @returns 是否找到 entry-customization。
+     */
+    function hasOfficialMore(ctx) {
+      try {
+        if (typeof ctx.slots.spec === 'function' && !ctx.slots.spec('sidebar.panellist.actions')) {
+          return false;
+        }
+        var entries = ctx.slots.entriesOfSlot('sidebar.panellist.actions');
+        for (var index = 0; index < entries.length; index += 1) {
+          var options = entries[index] && entries[index].options;
+          if (options && options.id === OFFICIAL_MORE_ID) return true;
+        }
+      } catch (error) {
+        // 槽位尚未声明或读取失败时由版本号兜底。
+      }
+      return false;
+    }
+
+    /**
+     * 判定运行环境的面板收纳来源。
+     *
+     * - 官方 0.2.2+：固定菜单与「更多」由官方维护，本插件只同步显示与排序；
+     * - 旧版：保留插件自己的隐藏 / 二级区。
+     *
+     * 优先看 boot release，其次看官方 entry-customization 注册者；两者任一命中
+     * 都走新版。这样开发构建缺 release 时仍能靠 API 探测降级/升级。
+     * @param ctx - 客户端根上下文。
+     * @returns `{ releaseVersion, officialPins }`。
+     */
+    function createCapabilities(ctx) {
+      var release = readBootRelease();
+      var officialPins = false;
+      if (release) officialPins = compareVersions(release.version, OFFICIAL_MORE_RELEASE) >= 0;
+      if (!officialPins) officialPins = bootHasOfficialMore();
+      if (!officialPins && hasOfficialMore(ctx)) officialPins = true;
+      return {
+        releaseVersion: release ? release.version : null,
+        officialPins: officialPins,
+      };
+    }
+
+    /**
+     * 新版折叠工具栏切分：只平铺官方固定（pinned）的面板，未固定面板与溢出项
+     * 一起进「更多」。这样折叠菜单与展开侧栏看到的固定集合一致。
+     * @param panels - 已按生效顺序排列的面板快照。
+     * @param pinnedIds - 当前固定面板 id；`null` 表示尚未观测到，先按全部固定处理。
+     * @param slots - 工具栏格数。
+     * @returns `{ visible, more, pinned, unpinned }`。
+     */
+    function splitOfficialPanels(panels, pinnedIds, slots) {
+      var limit = Number.isFinite(slots) ? slots : PANEL_SLOTS;
+      var known = Array.isArray(pinnedIds);
+      var pinnedSet = Object.create(null);
+      if (known) {
+        for (var pinnedIndex = 0; pinnedIndex < pinnedIds.length; pinnedIndex += 1) {
+          pinnedSet[pinnedIds[pinnedIndex]] = true;
+        }
+      }
+      var pinned = [];
+      var unpinned = [];
+      for (var index = 0; index < panels.length; index += 1) {
+        if (!known || pinnedSet[panels[index].id]) pinned.push(panels[index]);
+        else unpinned.push(panels[index]);
+      }
+      var needsMore = pinned.length > limit || unpinned.length > 0;
+      var visible = needsMore ? pinned.slice(0, Math.max(0, limit - 1)) : pinned;
+      var visibleSet = Object.create(null);
+      for (var visibleIndex = 0; visibleIndex < visible.length; visibleIndex += 1) {
+        visibleSet[visible[visibleIndex].id] = true;
+      }
+      var more = [];
+      for (var scan = 0; scan < panels.length; scan += 1) {
+        if (!visibleSet[panels[scan].id]) more.push(panels[scan]);
+      }
+      return { visible: visible, more: more, pinned: pinned, unpinned: unpinned };
+    }
+
+    /**
+     * 用新的分组顺序替换完整顺序里同一组的位置，组外项保持原位置。
+     * @param allOrder - 完整顺序。
+     * @param bucketIds - 被重排的分组 id。
+     * @param bucketOrder - 分组的新顺序。
+     * @returns 新完整顺序；长度对不上时原样返回。
+     */
+    function replaceBucketOrder(allOrder, bucketIds, bucketOrder) {
+      var bucketSet = Object.create(null);
+      for (var index = 0; index < bucketIds.length; index += 1) bucketSet[bucketIds[index]] = true;
+      var next = [];
+      var cursor = 0;
+      for (var scan = 0; scan < allOrder.length; scan += 1) {
+        var id = allOrder[scan];
+        if (!bucketSet[id]) {
+          next.push(id);
+          continue;
+        }
+        if (cursor >= bucketOrder.length) return allOrder.slice();
+        next.push(bucketOrder[cursor]);
+        cursor += 1;
+      }
+      return cursor === bucketOrder.length ? next : allOrder.slice();
+    }
+
+    /**
+     * 在某个分组内移动一项并写回完整顺序。展开侧栏、折叠工具栏和「更多」
+     * 浮层都通过它提交，避免各自维护一套顺序。
+     * @param store - 布局 store。
+     * @param panels - 面板快照。
+     * @param bucketIds - 参与本次排序的分组 id。
+     * @param id - 被拖拽的 id。
+     * @param index - 目标下标（移除被拖项后的序列）。
+     * @returns 是否提交。
+     */
+    function reorderBucket(store, panels, bucketIds, id, index) {
+      var all = panelIdsOf(panelsInOrder(panels, store.getSnapshot().order));
+      var bucket = [];
+      for (var indexScan = 0; indexScan < all.length; indexScan += 1) {
+        if (bucketIds.indexOf(all[indexScan]) !== -1) bucket.push(all[indexScan]);
+      }
+      if (bucket.indexOf(id) === -1) return false;
+      var moved = moveVisibleOrder(bucket, id, index);
+      var next = replaceBucketOrder(all, bucket, moved);
+      store.setOrder(next);
+      return true;
+    }
+
+    /**
+     * 官方固定状态的小型 observable store。
+     *
+     * `pinned === null` 表示尚未观测到（折叠工具栏先按全部显示）；
+     * 观测到之后，`pinned` 是当前固定的 id 数组。
+     * @returns `{ observable, getPinned, setPinned, setFromEntries }`。
+     */
+    function createPinsStore() {
+      var snapshot = { pinned: null };
+      var listeners = [];
+      var notify = function () {
+        var current = listeners.slice();
+        for (var index = 0; index < current.length; index += 1) current[index]();
+      };
+      var same = function (left, right) {
+        if (left === right) return true;
+        if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+        for (var index = 0; index < left.length; index += 1) {
+          if (left[index] !== right[index]) return false;
+        }
+        return true;
+      };
+      var setPinned = function (ids) {
+        if (!Array.isArray(ids)) return;
+        var clean = [];
+        var seen = Object.create(null);
+        for (var index = 0; index < ids.length; index += 1) {
+          var id = ids[index];
+          if (typeof id !== 'string' || id.length === 0 || seen[id]) continue;
+          seen[id] = true;
+          clean.push(id);
+        }
+        if (same(snapshot.pinned, clean)) return;
+        snapshot = { pinned: clean };
+        notify();
+      };
+      return {
+        observable: {
+          getSnapshot: function () {
+            return snapshot;
+          },
+          subscribe: function (listener) {
+            listeners.push(listener);
+            return function () {
+              var index = listeners.indexOf(listener);
+              if (index !== -1) listeners.splice(index, 1);
+            };
+          },
+        },
+        getPinned: function () {
+          return snapshot.pinned;
+        },
+        setPinned: setPinned,
+        /**
+         * 用官方「更多」的 entries（权威固定状态）回写。
+         * @param entries - `{ id, pinned }[]`。
+         * @param allPanels - 全部面板快照。
+         */
+        setFromEntries: function (entries, allPanels) {
+          if (!Array.isArray(entries) || !Array.isArray(allPanels)) return;
+          var unpinned = Object.create(null);
+          for (var index = 0; index < entries.length; index += 1) {
+            if (entries[index] && entries[index].pinned === false) unpinned[entries[index].id] = true;
+          }
+          var pinned = [];
+          for (var scan = 0; scan < allPanels.length; scan += 1) {
+            if (!unpinned[allPanels[scan].id]) pinned.push(allPanels[scan].id);
+          }
+          setPinned(pinned);
+        },
+        /**
+         * 用宿主 nav 里实际渲染的行回写；行不存在即未固定。
+         * @param allPanels - 全部面板快照。
+         * @param seenIds - nav 中实际渲染的 id。
+         */
+        setFromDom: function (allPanels, seenIds) {
+          if (!Array.isArray(allPanels) || !Array.isArray(seenIds) || seenIds.length === 0) return;
+          var seen = Object.create(null);
+          for (var index = 0; index < seenIds.length; index += 1) seen[seenIds[index]] = true;
+          var pinned = [];
+          for (var scan = 0; scan < allPanels.length; scan += 1) {
+            if (seen[allPanels[scan].id]) pinned.push(allPanels[scan].id);
+          }
+          setPinned(pinned);
+        },
+      };
+    }
+
+    /**
+     * 指针是否在「按钮 → 浮层」的悬停走廊里。
+     * 浮层 portal 到 body 后不再与按钮共享祖先，靠几何把两者连起来，
+     * 防止鼠标穿过 6px 间隙时浮层被延迟关闭。
+     * @param x - 指针 x。
+     * @param y - 指针 y。
+     * @param button - 按钮 rect。
+     * @param menu - 浮层 rect。
+     * @returns 是否仍在走廊内。
+     */
+    function hoverBridgeContains(x, y, button, menu) {
+      if (!button || !menu) return false;
+      var pad = 6;
+      var inside = function (rect) {
+        return x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad;
+      };
+      if (inside(button) || inside(menu)) return true;
+      var left = Math.min(button.left, menu.left);
+      var right = Math.max(button.right, menu.right);
+      var top = Math.min(button.bottom, menu.top);
+      var bottom = Math.max(button.bottom, menu.top);
+      return x >= left - pad && x <= right + pad && y >= top - pad && y <= bottom + pad;
+    }
+
     /**
      * 可被 slot 渲染器绑成 `usePanels` 的 observable source。
      * @param ctx - 客户端根上下文。
@@ -857,8 +1229,10 @@ window.__ModuleLoader__.load({
      * @param store - 排序状态 store。
      * @returns 包装组件。
      */
-    function createShadowPanel(id, Icon, store) {
-      var selectHidden = function (snapshot) { return snapshot.hidden.indexOf(id) !== -1; };
+    function createShadowPanel(id, Icon, store, hideEnabled) {
+      var selectHidden = function (snapshot) {
+        return hideEnabled !== false && snapshot.hidden.indexOf(id) !== -1;
+      };
       function ShadowPanel(props) {
         var hidden = useObservedSnapshot(store, selectHidden);
         var markerRef = React.useRef(null);
@@ -867,10 +1241,11 @@ window.__ModuleLoader__.load({
           // 图标也会在二级区、悬浮菜单和工具栏复用；只能隐藏宿主 nav 的主列表行。
           var row = hostPanelRow(marker);
           if (!row) return undefined;
+          var item = hostPanelRowItem(marker) || row;
           row.setAttribute('data-dfm-row-id', id);
-          if (hidden) row.style.display = 'none';
+          if (hidden) item.style.display = 'none';
           return function () {
-            row.style.removeProperty('display');
+            item.style.removeProperty('display');
             if (row.getAttribute('data-dfm-row-id') === id) row.removeAttribute('data-dfm-row-id');
           };
         }, [hidden]);
@@ -910,7 +1285,7 @@ window.__ModuleLoader__.load({
      * @param store - 排序状态 store。
      * @returns `{ sync, dispose }`。
      */
-    function createShadowManager(ctx, store) {
+    function createShadowManager(ctx, store, officialPins) {
       var shadows = Object.create(null);
       var syncing = false;
       var pending = false;
@@ -1005,7 +1380,7 @@ window.__ModuleLoader__.load({
             // 只有 order/priority 变化时复用同一个包装组件，避免图标被卸载重挂
             // 造成闪烁；组件本身变了才新建包装。
             var reuseWrapper = record && record.component === winner.entry.component;
-            var wrapper = reuseWrapper ? record.wrapper : createShadowPanel(id, winner.entry.component, store);
+            var wrapper = reuseWrapper ? record.wrapper : createShadowPanel(id, winner.entry.component, store, !officialPins);
             if (record) disposeShadow(id);
             try {
               var dispose = ctx.slots.register(
@@ -1310,41 +1685,182 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 面板区的最后一格：面板多于 `PANEL_SLOTS` 个或被收起了面板时取代原图标，
-     * 悬停（带意图延迟）或点击、键盘展开被挤出的面板；「排序与折叠」开启时
-     * 菜单末尾额外列出被收起的面板。
-     * 只服务折叠态工具栏，不改左侧展开菜单的顺序与内容。
-     * @param props - panels（被挤出的部分）/ hiddenPanels / t / usePanelInfo / onSelect。
+     * 折叠工具栏的最后一格「更多」。
+     *
+     * 浮层通过 `react-dom` portal 到 body：折叠工具栏位于窗口标题栏的层叠上下文里，
+     * 主面板（尤其插件页）的整页容器可能盖在它上面；留在原地时鼠标移动到浮层上
+     * 实际命中的是主面板，`pointerleave` 会立刻触发，菜单看起来“一离开就消失”。
+     * portal + fixed 定位让浮层始终在最上层，再用几何走廊连接按钮与浮层，
+     * 穿过 6px 间隙时也不会误关。
+     *
+     * 旧版仍在此列出被收起的面板；新版这些行由官方「更多」负责，只列固定项溢出
+     * 与未固定项。
+     * @param props - panels / hiddenPanels / t / usePanelInfo / onSelect /
+     *   onReorder / dragActive。
      */
     function PanelOverflowMenu(props) {
-      var panels = props.panels;
+      var panels = Array.isArray(props.panels) ? props.panels : [];
       var hiddenPanels = Array.isArray(props.hiddenPanels) ? props.hiddenPanels : [];
-      var state = React.useState(false);
-      var open = state[0];
-      var setOpen = state[1];
+      var openState = React.useState(false);
+      var open = openState[0];
+      var setOpen = openState[1];
+      var stickyState = React.useState(false);
+      var sticky = stickyState[0];
+      var setSticky = stickyState[1];
+      var posState = React.useState({ left: 0, top: 0 });
+      var pos = posState[0];
+      var setPos = posState[1];
+      var anchorRef = React.useRef(null);
+      var menuRef = React.useRef(null);
       var timer = React.useRef(null);
+      var frame = React.useRef(null);
+      var tRef = React.useRef(props.t);
+      tRef.current = props.t;
+      var onReorderRef = React.useRef(props.onReorder);
+      onReorderRef.current = props.onReorder;
+      var dragRef = React.useRef(props.dragActive);
+      dragRef.current = props.dragActive;
+      var stickyRef = React.useRef(sticky);
+      stickyRef.current = sticky;
+
       var cancel = function () {
-        if (timer.current === null) return;
-        clearTimeout(timer.current);
-        timer.current = null;
+        if (timer.current !== null) {
+          clearTimeout(timer.current);
+          timer.current = null;
+        }
+        if (frame.current !== null && typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(frame.current);
+          frame.current = null;
+        }
       };
       var schedule = function (next, delay) {
         cancel();
         timer.current = setTimeout(function () {
           timer.current = null;
           setOpen(next);
+          if (!next) setSticky(false);
         }, delay);
       };
-      React.useEffect(function () {
-        return cancel;
-      }, []);
       var close = function () {
         cancel();
         setOpen(false);
+        setSticky(false);
       };
+      var place = function () {
+        var anchor = anchorRef.current;
+        if (!anchor || typeof anchor.getBoundingClientRect !== 'function') return;
+        var rect = anchor.getBoundingClientRect();
+        var width = window.innerWidth || 0;
+        var left = Math.max(8, Math.min(rect.left, width - 220));
+        var menu = menuRef.current;
+        if (menu && typeof menu.getBoundingClientRect === 'function') {
+          var menuRect = menu.getBoundingClientRect();
+          left = Math.max(8, Math.min(left, width - menuRect.width - 8));
+        }
+        var next = { left: left, top: rect.bottom + 6 };
+        if (pos.left === next.left && pos.top === next.top) return;
+        setPos(next);
+      };
+      var measureSoon = function () {
+        if (frame.current !== null) return;
+        if (typeof requestAnimationFrame !== 'function') {
+          place();
+          return;
+        }
+        frame.current = requestAnimationFrame(function () {
+          frame.current = null;
+          place();
+        });
+      };
+      var openHover = function () {
+        if (dragRef.current) return;
+        cancel();
+        timer.current = setTimeout(function () {
+          timer.current = null;
+          place();
+          setOpen(true);
+          setSticky(false);
+        }, MENU_OPEN_DELAY);
+      };
+      var leaveHover = function () {
+        if (stickyRef.current) return;
+        schedule(false, MENU_CLOSE_DELAY);
+      };
+      var ownsPoint = function (x, y) {
+        var anchor = anchorRef.current;
+        var menu = menuRef.current;
+        if (!anchor) return false;
+        return hoverBridgeContains(
+          x,
+          y,
+          anchor.getBoundingClientRect(),
+          menu && typeof menu.getBoundingClientRect === 'function' ? menu.getBoundingClientRect() : null,
+        );
+      };
+
+      React.useEffect(function () {
+        return cancel;
+      }, []);
       React.useLayoutEffect(function () {
         if (props.dragActive) close();
       }, [props.dragActive]);
+      React.useLayoutEffect(function () {
+        if (!open) return undefined;
+        place();
+        // 展开后菜单首次挂载，再按实际宽度钳一次。
+        measureSoon();
+        return undefined;
+      }, [open]);
+
+      React.useEffect(function () {
+        if (!open || typeof document === 'undefined') return undefined;
+        var onMove = function (event) {
+          if (ownsPoint(event.clientX, event.clientY)) cancel();
+          else if (!stickyRef.current) schedule(false, MENU_CLOSE_DELAY);
+        };
+        var onDown = function (event) {
+          var target = event.target;
+          var anchor = anchorRef.current;
+          var menu = menuRef.current;
+          if (anchor && anchor.contains(target)) return;
+          if (menu && menu.contains(target)) return;
+          close();
+        };
+        var onKey = function (event) {
+          if (event.key !== 'Escape') return;
+          event.stopPropagation();
+          close();
+        };
+        var onViewport = function () {
+          if (menuRef.current) place();
+          else close();
+        };
+        document.addEventListener('pointermove', onMove, true);
+        document.addEventListener('pointerdown', onDown, true);
+        document.addEventListener('keydown', onKey, true);
+        document.addEventListener('scroll', onViewport, true);
+        window.addEventListener('resize', onViewport);
+        window.addEventListener('blur', close);
+        return function () {
+          document.removeEventListener('pointermove', onMove, true);
+          document.removeEventListener('pointerdown', onDown, true);
+          document.removeEventListener('keydown', onKey, true);
+          document.removeEventListener('scroll', onViewport, true);
+          window.removeEventListener('resize', onViewport);
+          window.removeEventListener('blur', close);
+        };
+      }, [open]);
+
+      // 浮层里的行可以原地拖动换位；旧版收起项也走同一个分组。
+      React.useLayoutEffect(function () {
+        if (!open || typeof document === 'undefined' || !onReorderRef.current) return undefined;
+        var menu = menuRef.current;
+        if (!menu) return undefined;
+        return installMenuReorder(menu, RAIL_MENU_ID_ATTR, function (id, index) {
+          if (onReorderRef.current) onReorderRef.current(id, index);
+        }, tRef);
+      }, [open]);
+
       var active = props.usePanelInfo(function (info) {
         for (var index = 0; index < panels.length; index += 1) {
           if (panels[index].id === info.activePanelId) return true;
@@ -1396,55 +1912,90 @@ window.__ModuleLoader__.load({
           );
         }
       }
-      return h(
+
+      var canPortal =
+        props.officialPins === true &&
+        ReactDOM &&
+        typeof ReactDOM.createPortal === 'function' &&
+        typeof document !== 'undefined' &&
+        !!document.body;
+      var menuNode = h(
+        'div',
+        {
+          ref: menuRef,
+          className: 'DFM_menu',
+          role: 'menu',
+          'aria-label': props.t('panels.more'),
+          'data-dfm-menu-portal': canPortal ? 'true' : undefined,
+          style: canPortal ? { left: pos.left + 'px', top: pos.top + 'px' } : undefined,
+          onPointerEnter: function () {
+            cancel();
+          },
+          onPointerDown: function () {
+            // 在浮层里按下（包括开始拖动换位）后改为粘性打开，
+            // 避免拖到边缘时被 hover 关闭逻辑收走。
+            setSticky(true);
+          },
+          onPointerLeave: function () {
+            leaveHover();
+          },
+          onBlur: function (event) {
+            var next = event.relatedTarget;
+            var anchor = anchorRef.current;
+            if (next && (event.currentTarget.contains(next) || (anchor && anchor.contains(next)))) return;
+            close();
+          },
+        },
+        rows,
+      );
+      var button = h(
+        RailButton,
+        {
+          label: props.t('panels.more'),
+          active: active,
+          testId: 'more-panels',
+          hideTip: true,
+          hasPopup: 'menu',
+          expanded: open,
+          onClick: function () {
+            if (props.dragActive) return;
+            cancel();
+            if (!open) {
+              place();
+              setOpen(true);
+              setSticky(true);
+            } else if (sticky) {
+              close();
+            } else {
+              setSticky(true);
+            }
+          },
+        },
+        h(MorePanelsIcon, { size: ICON_SIZE }),
+      );
+      var anchor = h(
         'div',
         {
           className: 'DFM_more',
-          onPointerEnter: function () {
-            if (props.dragActive) return;
-            schedule(true, MENU_OPEN_DELAY);
-          },
-          onPointerLeave: function () {
-            schedule(false, MENU_CLOSE_DELAY);
-          },
-          onBlur: function (event) {
-            // 键盘把焦点移出这个入口（按钮 + 菜单）时收起，避免留下无主浮层。
-            var next = event.relatedTarget;
-            if (next && event.currentTarget.contains(next)) return;
-            close();
-          },
+          ref: anchorRef,
+          onPointerEnter: openHover,
+          onPointerLeave: leaveHover,
           onKeyDown: function (event) {
             if (event.key !== 'Escape' || !open) return;
             event.stopPropagation();
             close();
           },
         },
-        h(
-          RailButton,
-          {
-            label: props.t('panels.more'),
-            active: active,
-            testId: 'more-panels',
-            hideTip: true,
-            hasPopup: 'menu',
-            expanded: open,
-            onClick: function () {
-              if (props.dragActive) return;
-              cancel();
-              setOpen(function (value) {
-                return !value;
-              });
-            },
-          },
-          h(MorePanelsIcon, { size: ICON_SIZE }),
-        ),
-        open && !props.dragActive
-          ? h(
-              'div',
-              { className: 'DFM_menu', role: 'menu', 'aria-label': props.t('panels.more') },
-              rows,
-            )
-          : null,
+        button,
+        !canPortal && open && !props.dragActive ? menuNode : null,
+      );
+      if (!open || props.dragActive) return anchor;
+      if (!canPortal) return anchor;
+      return h(
+        React.Fragment,
+        null,
+        anchor,
+        ReactDOM.createPortal(menuNode, document.body),
       );
     }
 
@@ -1491,17 +2042,27 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 插件详情页（`plugins.bundle.config`）里的两个组件开关：
-     *  - 「折叠菜单」：原有的折叠态工具栏 / 拖拽收起 / 返回会话，默认开；
-     *  - 「面板挪位与折叠」：v0.4 新增的排序与收进「更多」，默认关。
-     * @param props - t / useLayout / setToolbarEnabled / setLayoutEnabled。
+     * 插件详情页（`plugins.bundle.config`）里的三个组件开关：
+     *  - 「折叠菜单」：原有的折叠态工具栏 / 拖拽收起，默认开；
+     *  - 「返回会话按钮」：折叠态与展开态的两处返回入口，默认开；
+     *  - 「面板挪位与折叠 / 面板挪位」：排序；新版收纳交给官方「更多」。
+     * @param props - t / useLayout / 三个 setter / officialPins / releaseVersion。
      */
     function PluginSettingsSection(props) {
       var snapshot = props.useLayout(function (state) {
         return state;
       });
       var toolbarTitle = props.t('settings.toolbar.title');
-      var layoutTitle = props.t('layout.title');
+      var backTitle = props.t('settings.back.title');
+      var layoutTitle = props.t(props.officialPins ? 'layout.title.new' : 'layout.title');
+      var layoutDescription = props.t(
+        props.officialPins ? 'layout.description.new' : 'layout.description',
+      );
+      var compat = props.officialPins
+        ? props.releaseVersion
+          ? 'DSH ' + props.releaseVersion + ' · ' + props.t('compat.official')
+          : props.t('compat.official')
+        : props.t('compat.legacy');
       return h(
         'div',
         { className: 'DFM_pluginSettings' },
@@ -1524,12 +2085,29 @@ window.__ModuleLoader__.load({
         ),
         h(
           'div',
+          { className: 'DFM_setRow' },
+          h(
+            'div',
+            { className: 'DFM_setText' },
+            h('div', { className: 'DFM_setTitle' }, backTitle),
+            h('div', { className: 'DFM_setDesc' }, props.t('settings.back.desc')),
+          ),
+          h(Switch, {
+            checked: snapshot.backEnabled !== false,
+            label: backTitle,
+            onChange: function (next) {
+              props.setBackEnabled(next);
+            },
+          }),
+        ),
+        h(
+          'div',
           { className: 'DFM_setRow DFM_setRowLast' },
           h(
             'div',
             { className: 'DFM_setText' },
             h('div', { className: 'DFM_setTitle' }, layoutTitle),
-            h('div', { className: 'DFM_setDesc' }, props.t('layout.description')),
+            h('div', { className: 'DFM_setDesc' }, layoutDescription),
           ),
           h(Switch, {
             checked: snapshot.enabled === true,
@@ -1539,6 +2117,7 @@ window.__ModuleLoader__.load({
             },
           }),
         ),
+        h('div', { className: 'DFM_compatNote' }, compat),
       );
     }
 
@@ -1564,6 +2143,50 @@ window.__ModuleLoader__.load({
         if (rows.length) rows.push(h('div', { key: 'divider', className: 'DFM_menuDivider', role: 'separator' }));
       }
       return h('div', { 'data-dfm-sidebar-menu': '', style: { display: 'contents' } }, rows);
+    }
+
+    /**
+     * 新版官方「更多」菜单里的无渲染探针。
+     *
+     * 1. 官方 entries 是固定状态的权威来源，菜单每次渲染都把它回写到 pin store，
+     *    折叠工具栏据此只显示固定项。
+     * 2. 菜单里的未固定行可以原地拖动换位，提交到与展开/折叠菜单相同的 order；
+     *    行由官方渲染，这里只用 `data-dfm-id` 锚点做事件委托。
+     * @param props - entries / pinStore / panelsSource / layoutStore / t。
+     */
+    function MoreMenuObserver(props) {
+      var markerRef = React.useRef(null);
+      var entriesRef = React.useRef(props.entries);
+      entriesRef.current = props.entries;
+      var tRef = React.useRef(props.t);
+      tRef.current = props.t;
+      var enabled = props.useLayout(function (snapshot) {
+        return snapshot.enabled === true;
+      });
+      React.useLayoutEffect(function () {
+        props.pinStore.setFromEntries(props.entries, props.panelsSource.getSnapshot());
+      }, [props.entries]);
+      React.useLayoutEffect(function () {
+        if (!enabled) return undefined;
+        var marker = markerRef.current;
+        if (!marker || typeof document === 'undefined') return undefined;
+        var menu = marker.closest ? marker.closest('[role="menu"]') : null;
+        if (!menu) return undefined;
+        return installMenuReorder(menu, MARKER_ATTR, function (id, index) {
+          if (!props.layoutStore.getSnapshot().enabled) return;
+          var entries = entriesRef.current || [];
+          var bucket = [];
+          for (var entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+            if (entries[entryIndex] && entries[entryIndex].pinned === false) bucket.push(entries[entryIndex].id);
+          }
+          reorderBucket(props.layoutStore, props.panelsSource.getSnapshot(), bucket, id, index);
+        }, tRef);
+      }, [enabled]);
+      return h('span', {
+        ref: markerRef,
+        'data-dfm-more-observer': '',
+        style: { display: 'contents' },
+      });
     }
 
     /**
@@ -1624,6 +2247,7 @@ window.__ModuleLoader__.load({
      */
     function SidebarChrome(props) {
       var wide = props.wide === true;
+      var officialPins = props.officialPins === true;
       var t = props.t;
       var tRef = React.useRef(t);
       tRef.current = t;
@@ -1657,11 +2281,10 @@ window.__ModuleLoader__.load({
       var chevronRef = React.useRef(null);
       var moreRowRef = React.useRef(null);
 
-      // 1) 展开态返回按钮：仅在「侧栏展开 + 面板打开」时插入宿主顶栏。
+      // 1) 展开态返回按钮：仅在「侧栏展开 + 面板打开 + 返回按钮开关开启」时插入宿主顶栏。
       React.useLayoutEffect(function () {
         if (typeof document === 'undefined' || !wide || !panelActive) return undefined;
-        // 返回按钮属于原有「折叠菜单」组件；关闭该组件时不注入。
-        if (layout.toolbarEnabled === false) return undefined;
+        if (layout.backEnabled === false) return undefined;
         var root = document.documentElement;
         if (!root || root.getAttribute('data-platform') !== 'darwin') return undefined;
         var toggle = document.querySelector('[data-sidebar-toggle]');
@@ -1692,11 +2315,11 @@ window.__ModuleLoader__.load({
           button.removeEventListener('click', onClick);
           if (button.parentNode) button.parentNode.removeChild(button);
         };
-      }, [wide, panelActive, layout.toolbarEnabled]);
+      }, [wide, panelActive, layout.backEnabled]);
 
-      // 2) 「更多」行 chevron + 二级区容器（开关开启时才出现）。
+      // 2) 「更多」行 chevron + 二级区容器：仅旧版、开关开启时出现。
       React.useLayoutEffect(function () {
-        if (typeof document === 'undefined' || !wide || !layout.enabled) return undefined;
+        if (typeof document === 'undefined' || !wide || !layout.enabled || officialPins) return undefined;
         // 没有 react-dom 就画不出二级区内容；此时不提供收起入口，避免面板被
         // 收进去却无法拖回来。
         if (!ReactDOM || typeof ReactDOM.createPortal !== 'function') return undefined;
@@ -1731,15 +2354,7 @@ window.__ModuleLoader__.load({
           var stripNode =
             toggleNode && toggleNode.closest ? toggleNode.closest('[data-window-drag]') : null;
           var sidebarRoot = stripNode ? stripNode.parentElement : null;
-          var nav = null;
-          if (sidebarRoot) {
-            for (var index = 0; index < sidebarRoot.children.length; index += 1) {
-              if (sidebarRoot.children[index].tagName === 'NAV') {
-                nav = sidebarRoot.children[index];
-                break;
-              }
-            }
-          }
+          var nav = sidebarNavElement(sidebarRoot);
           var moreButton = nav ? nav.querySelector('button[aria-haspopup="menu"]') : null;
           var moreRow = moreButton;
           while (moreRow && moreRow.parentElement !== nav) moreRow = moreRow.parentElement;
@@ -1805,7 +2420,7 @@ window.__ModuleLoader__.load({
             moreRowRef.current = null;
           }
         };
-      }, [wide, layout.enabled]);
+      }, [wide, layout.enabled, officialPins]);
 
       // 3) chevron 的朝向/文案跟随二级区展开状态。
       React.useLayoutEffect(function () {
@@ -2027,11 +2642,143 @@ window.__ModuleLoader__.load({
       return node && typeof node.closest === 'function' ? node.closest('[' + attribute + ']') : null;
     }
 
-    /** 只匹配宿主 nav 的直接面板行，排除复用影子图标的所有自绘入口。 */
+    /** 只匹配宿主 nav 内的面板按钮，排除复用影子图标的所有自绘入口。 */
     function hostPanelRow(marker) {
       var row = marker && marker.closest ? marker.closest('button') : null;
       var nav = row && row.closest ? row.closest('nav') : null;
-      return nav && row.parentElement === nav ? row : null;
+      if (!row || !nav) return null;
+      // 0.2.2 起 PanelRow 多了一层行容器（承载 pin 按钮），按钮不再是 nav 的
+      // 直接子元素；向上找到 nav 的直接子元素来确认这是主列表行。
+      var item = row;
+      while (item.parentElement && item.parentElement !== nav) item = item.parentElement;
+      return item.parentElement === nav ? row : null;
+    }
+
+    /** 宿主 nav 里的整行容器（可能是按钮，也可能是包住按钮的 `.panelEntry`）。 */
+    function hostPanelRowItem(marker) {
+      var row = hostPanelRow(marker);
+      if (!row) return null;
+      var nav = row.closest('nav');
+      var item = row;
+      while (item.parentElement && item.parentElement !== nav) item = item.parentElement;
+      return item.parentElement === nav ? item : null;
+    }
+
+    /** 侧栏根节点：`[data-sidebar-toggle]` 所在的标题条父级。 */
+    function sidebarRootElement() {
+      if (typeof document === 'undefined') return null;
+      var toggle = document.querySelector('[data-sidebar-toggle]');
+      var strip = toggle && toggle.closest ? toggle.closest('[data-window-drag]') : null;
+      return strip ? strip.parentElement : null;
+    }
+
+    /** 侧栏根节点里的面板 nav（优先直接子元素，其次在子树内查找）。 */
+    function sidebarNavElement(root) {
+      var scope = root || sidebarRootElement();
+      if (!scope) return null;
+      for (var index = 0; index < scope.children.length; index += 1) {
+        if (scope.children[index].tagName === 'NAV') return scope.children[index];
+      }
+      // 0.2.2 起面板 nav 位于 scrollRegion/scrollArea 内部，不再是根节点的直接子元素。
+      return typeof scope.querySelector === 'function' ? scope.querySelector('nav') : null;
+    }
+
+    /**
+     * 没有影子标记时，用宿主行按钮的 aria-label 反推固定项。
+     *
+     * 拖拽排序关闭时不会注册影子，但 nav 里仍然只渲染固定项；按面板顺序
+     * 与行顺序做一次顺序匹配，能覆盖官方固定/取消固定后的集合变化。
+     * @param nav - 宿主面板 nav。
+     * @param panels - 当前面板快照（按顺序）。
+     * @returns 固定 id 数组；无法可靠匹配时返回 null。
+     */
+    function pinnedIdsFromLabels(nav, panels) {
+      if (!nav || !Array.isArray(panels)) return null;
+      var rows = [];
+      for (var index = 0; index < nav.children.length; index += 1) {
+        var item = nav.children[index];
+        var button = null;
+        if (item.tagName === 'BUTTON') button = item;
+        else if (typeof item.querySelector === 'function') button = item.querySelector('button[aria-label]');
+        if (!button) continue;
+        if (button.getAttribute('aria-haspopup') === 'menu') continue;
+        var label = button.getAttribute('aria-label');
+        if (typeof label !== 'string' || label.length === 0) continue;
+        rows.push(label);
+      }
+      if (rows.length === 0) return null;
+      var pinned = [];
+      var cursor = 0;
+      for (var panelIndex = 0; panelIndex < panels.length && cursor < rows.length; panelIndex += 1) {
+        if (panels[panelIndex].label === rows[cursor]) {
+          pinned.push(panels[panelIndex].id);
+          cursor += 1;
+        }
+      }
+      // 只有把当前渲染的固定行全部对上才采用；否则保持上一次状态。
+      return cursor === rows.length ? pinned : null;
+    }
+
+    /**
+     * 观测宿主 nav 的固定集合，与组件生命周期解耦。
+     *
+     * `SidebarChrome` 是无渲染组件，但在某些布局下可能晚挂载/重挂载；固定状态用
+     * 独立的 plugin effect 观察更可靠。优先用 nav 行 aria-label 与面板顺序匹配，
+     * 匹配不上再退回影子标记，避免一次错误的标记集合覆盖正确结果。
+     * @param pinStore - 固定状态 store。
+     * @param panelsSource - 面板 observable source。
+     * @returns 清理函数。
+     */
+    function installPinnedObserver(pinStore, panelsSource) {
+      if (typeof document === 'undefined') return undefined;
+      var root = null;
+      var observer = null;
+      var frame = null;
+      var scheduled = false;
+      var read = function () {
+        scheduled = false;
+        var nav = sidebarNavElement(root);
+        if (!nav) return;
+        var panels = panelsSource.getSnapshot();
+        var fromLabels = pinnedIdsFromLabels(nav, panels);
+        if (fromLabels) {
+          pinStore.setPinned(fromLabels);
+          return;
+        }
+        // 排序开启时影子包装会给出更精确的固定行；标签匹配失败时兜底。
+        var markers = nav.querySelectorAll('[' + MARKER_ATTR + ']');
+        var seen = [];
+        for (var index = 0; index < markers.length; index += 1) {
+          var id = markers[index].getAttribute(MARKER_ATTR);
+          if (id && seen.indexOf(id) === -1 && hostPanelRow(markers[index])) seen.push(id);
+        }
+        if (seen.length > 0) pinStore.setFromDom(panels, seen);
+      };
+      var schedule = function () {
+        if (scheduled) return;
+        scheduled = true;
+        if (typeof requestAnimationFrame === 'function') {
+          frame = requestAnimationFrame(read);
+        } else {
+          frame = setTimeout(read, 0);
+        }
+      };
+      var attach = function () {
+        if (typeof MutationObserver !== 'function') return;
+        if (observer) observer.disconnect();
+        root = sidebarRootElement();
+        observer = new MutationObserver(schedule);
+        observer.observe(root || document.documentElement, { childList: true, subtree: true });
+      };
+      attach();
+      schedule();
+      return function () {
+        if (observer) observer.disconnect();
+        if (frame !== null) {
+          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+          else clearTimeout(frame);
+        }
+      };
     }
 
     /** 一次提交分组与落点，避免恢复面板时先闪回旧位置。 */
@@ -2206,6 +2953,184 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 在任意浮层菜单里做纵向换位：浮层由宿主 portal 渲染，行也由宿主渲染，
+     * 这里只按 `idAttr` 找到行、画插入线，松手后把新顺序交给调用方。
+     * 官方的「更多」和折叠工具栏自己的「更多」共用这一个控制器。
+     * @param menu - 浮层根节点。
+     * @param idAttr - 行上的面板 id 属性（`data-dfm-id` / `data-dfm-rail-menu-id`）。
+     * @param onReorder - `(id, index) => void`，index 为移除被拖行后的落点。
+     * @param tRef - 可选文案 ref（当前未使用，保留给无障碍提示扩展）。
+     * @returns 清理函数。
+     */
+    function installMenuReorder(menu, idAttr, onReorder, tRef) {
+      if (!menu || typeof onReorder !== 'function') return function () {};
+      var session = null;
+      var indicator = createInsertionIndicator();
+      var frame = null;
+      var selector = '[' + idAttr + ']';
+
+      function rowsAt() {
+        var markers = menu.querySelectorAll(selector);
+        var result = [];
+        var seen = [];
+        for (var index = 0; index < markers.length; index += 1) {
+          var marker = markers[index];
+          var id = marker.getAttribute(idAttr);
+          if (!id) continue;
+          var row = marker.closest ? marker.closest('button') : null;
+          if (!row || !menu.contains(row) || seen.indexOf(row) !== -1) continue;
+          var rect = row.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) continue;
+          seen.push(row);
+          result.push({ id: id, row: row, rect: rect });
+        }
+        result.sort(function (left, right) {
+          return left.rect.top - right.rect.top;
+        });
+        return result;
+      }
+
+      function targetAt(y, draggedId) {
+        var rows = rowsAt();
+        if (!rows.length) return null;
+        var without = [];
+        for (var index = 0; index < rows.length; index += 1) {
+          if (rows[index].id !== draggedId) without.push(rows[index]);
+        }
+        var target = 0;
+        for (var scan = 0; scan < without.length; scan += 1) {
+          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
+        }
+        var lineY;
+        if (without.length === 0) lineY = rows[0].rect.top + rows[0].rect.height / 2;
+        else if (target === 0) lineY = without[0].rect.top - 2;
+        else if (target === without.length) lineY = without[without.length - 1].rect.bottom + 2;
+        else lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
+        return {
+          index: target,
+          lineY: lineY,
+          left: rows[0].rect.left,
+          width: rows[0].rect.width,
+        };
+      }
+
+      function resetSession() {
+        if (!session) return;
+        document.removeEventListener('pointermove', onPointerMove, true);
+        document.removeEventListener('pointerup', onPointerUp, true);
+        document.removeEventListener('pointercancel', onPointerCancel, true);
+        document.removeEventListener('keydown', onKeyDown, true);
+        if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+        frame = null;
+        if (indicator) indicator.hide();
+        if (typeof document !== 'undefined') document.documentElement.removeAttribute(DRAG_ROOT_ATTR);
+        if (session.row && session.row.classList) session.row.classList.remove('DFM_rowDragging');
+        session = null;
+      }
+
+      function updateDrag(x, y) {
+        if (!session || !session.active) return;
+        var rect = menu.getBoundingClientRect();
+        if (x < rect.left - 12 || x > rect.right + 12 || y < rect.top - 12 || y > rect.bottom + 12) {
+          if (indicator) indicator.hide();
+          return;
+        }
+        var target = targetAt(y, session.id);
+        if (target && indicator) indicator.showVertical(target.left, target.width, target.lineY);
+      }
+
+      function onPointerMove(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        if (!session.active) {
+          var dx = event.clientX - session.startX;
+          var dy = event.clientY - session.startY;
+          if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
+          session.active = true;
+          session.row.classList.add('DFM_rowDragging');
+          document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
+          if (event.cancelable) event.preventDefault();
+        } else if (event.cancelable) {
+          event.preventDefault();
+        }
+        session.x = event.clientX;
+        session.y = event.clientY;
+        if (frame !== null) return;
+        if (typeof requestAnimationFrame === 'function') {
+          frame = requestAnimationFrame(function () {
+            frame = null;
+            if (!session || !session.active) return;
+            updateDrag(session.x, session.y);
+          });
+        } else {
+          updateDrag(session.x, session.y);
+        }
+      }
+
+      function onPointerUp(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        var drag = session;
+        // 浮层是 fixed/portal 的，菜单 rect 与页面坐标偶尔会差一帧；换位只需要
+        // 纵向落点，按行中点计算即可，不再用矩形二次否决。
+        var target = drag.active ? targetAt(event.clientY, drag.id) : null;
+        var active = drag.active;
+        resetSession();
+        if (!active) return;
+        suppressNextClick();
+        if (target) onReorder(drag.id, target.index);
+      }
+
+      function onPointerCancel(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        resetSession();
+      }
+
+      function onKeyDown(event) {
+        if (event.key !== 'Escape' || !session) return;
+        event.preventDefault();
+        if (session.active) suppressNextClick();
+        resetSession();
+      }
+
+      function onPointerDown(event) {
+        if (event.button !== 0 || session) return;
+        var target = event.target;
+        if (!target || typeof target.closest !== 'function') return;
+        var marker = target.closest(selector);
+        if (!marker) return;
+        var row = marker.closest('button');
+        if (!row || !menu.contains(row)) return;
+        var id = marker.getAttribute(idAttr);
+        if (!id) return;
+        session = {
+          pointerId: event.pointerId,
+          id: id,
+          row: row,
+          startX: event.clientX,
+          startY: event.clientY,
+          x: event.clientX,
+          y: event.clientY,
+          active: false,
+        };
+        document.addEventListener('pointermove', onPointerMove, true);
+        document.addEventListener('pointerup', onPointerUp, true);
+        document.addEventListener('pointercancel', onPointerCancel, true);
+        document.addEventListener('keydown', onKeyDown, true);
+      }
+
+      var onBlur = function () {
+        if (session) resetSession();
+      };
+      if (typeof window.addEventListener === 'function') window.addEventListener('blur', onBlur);
+      menu.addEventListener('pointerdown', onPointerDown, true);
+      return function () {
+        if (typeof window.removeEventListener === 'function') window.removeEventListener('blur', onBlur);
+        resetSession();
+        if (indicator) indicator.dispose();
+        menu.removeEventListener('pointerdown', onPointerDown, true);
+      };
+    }
+
+    /**
      * 展开侧栏的拖拽换位：按下后移动超过约 4px 立即进入拖拽（不再长按等待），
      * 拖动期间列表保持不动，只用一条蓝色插入线提示落点，松手才写 store。
      * 拖到「更多」行或二级区上松手 = 收起；二级区里的行拖回主区 = 恢复；
@@ -2214,7 +3139,7 @@ window.__ModuleLoader__.load({
      * @param panelsSource - 当前面板快照（提供生效顺序）。
      * @returns 清理函数。
      */
-    function installPanelDrag(store, panelsSource) {
+    function installPanelDrag(store, panelsSource, officialPins) {
       if (typeof document === 'undefined') return undefined;
       var session = null;
       var indicator = createInsertionIndicator();
@@ -2226,7 +3151,7 @@ window.__ModuleLoader__.load({
       }
 
       function hiddenIds() {
-        return store.getSnapshot().hidden;
+        return officialPins ? [] : store.getSnapshot().hidden;
       }
 
       function hiddenSetOf(ids) {
@@ -2409,6 +3334,18 @@ window.__ModuleLoader__.load({
 
       function updateDrag(x, y) {
         if (!session) return;
+        // 新版没有插件自己的隐藏区：只在固定面板行之间画插入线，
+        // 拖到官方「更多」行不触发「收起」，收纳由官方菜单负责。
+        if (officialPins) {
+          clearHighlights();
+          if (overMainZone(x, y)) {
+            var officialTarget = mainTargetAt(y, session.id);
+            if (officialTarget && indicator) {
+              indicator.showVertical(officialTarget.left, officialTarget.width, officialTarget.lineY);
+            }
+          }
+          return;
+        }
         var snapshot = store.getSnapshot();
         var tray = trayElement();
         var overTray = overElement(tray, x, y);
@@ -2496,6 +3433,17 @@ window.__ModuleLoader__.load({
         var x = event.clientX;
         var y = event.clientY;
         var active = drag.active;
+        if (officialPins) {
+          var bucket = mainMarkers().map(function (entry) { return entry.id; });
+          var officialTarget = overMainZone(x, y) ? mainTargetAt(y, drag.id) : null;
+          resetSession();
+          if (!active) return;
+          suppressNextClick();
+          if (officialTarget) {
+            reorderBucket(store, panelsSource.getSnapshot(), bucket, drag.id, officialTarget.index);
+          }
+          return;
+        }
         var overTray = overElement(trayElement(), x, y);
         var overMore = overElement(moreRowElement(), x, y);
         resetSession();
@@ -2553,6 +3501,9 @@ window.__ModuleLoader__.load({
         if (!trayRow && !marker && !hostRow) return;
         var row = trayRow || (marker ? marker.closest('button') : hostRow);
         if (!row || (!trayRow && row !== hostPanelRow(marker || row))) return;
+        // 点行内的固定/取消固定按钮时不要启动整行拖拽。
+        var hitButton = target.closest('button');
+        if (hitButton && !trayRow && hitButton !== row) return;
         var id = trayRow
           ? row.getAttribute(TRAY_ID_ATTR)
           : marker
@@ -2598,7 +3549,7 @@ window.__ModuleLoader__.load({
      * @param panelsSource - 当前面板快照。
      * @returns 清理函数。
      */
-    function installRailDrag(store, panelsSource) {
+    function installRailDrag(store, panelsSource, officialPins) {
       if (typeof document === 'undefined') return undefined;
       var session = null;
       var indicator = createInsertionIndicator();
@@ -2611,6 +3562,23 @@ window.__ModuleLoader__.load({
 
       function railElement() {
         return document.querySelector('[data-fold-minimal="rail"]');
+      }
+
+      function railPanelButtons() {
+        var rail = railElement();
+        if (!rail) return [];
+        return railButtons(rail);
+      }
+
+      function officialTargetAt(x, y, id) {
+        var rail = railElement();
+        if (!rail) return null;
+        var railRect = rail.getBoundingClientRect();
+        if (x < railRect.left - 12 || x > railRect.right + 12 ||
+            y < railRect.top - 12 || y > railRect.bottom + 12) return null;
+        var buttons = railButtons(rail);
+        if (!buttons.length) return null;
+        return targetAt(x, id, rail);
       }
 
       function railButtons(zone) {
@@ -2680,7 +3648,9 @@ window.__ModuleLoader__.load({
       function updateDrag() {
         if (!session || !session.active) return;
         if (session.ghost) session.ghost.move(session.x, session.y);
-        var target = dropTargetAt(session.x, session.y, session.id);
+        var target = officialPins
+          ? officialTargetAt(session.x, session.y, session.id)
+          : dropTargetAt(session.x, session.y, session.id);
         if (target && indicator) {
           indicator.showHorizontal(target.lineX, target.top, target.height);
         } else if (indicator) indicator.hide();
@@ -2734,6 +3704,17 @@ window.__ModuleLoader__.load({
         var x = event.clientX;
         var y = event.clientY;
         var active = drag.active;
+        if (officialPins) {
+          var bucket = railPanelButtons().map(function (entry) { return entry.id; });
+          var officialTarget = active ? officialTargetAt(x, y, drag.id) : null;
+          resetSession();
+          if (!active) return;
+          suppressNextClick();
+          if (officialTarget) {
+            reorderBucket(store, panelsSource.getSnapshot(), bucket, drag.id, officialTarget.index);
+          }
+          return;
+        }
         var target = active ? dropTargetAt(x, y, drag.id) : null;
         resetSession();
         if (!active) return;
@@ -2815,12 +3796,16 @@ window.__ModuleLoader__.load({
      */
     function LeadingRail(props) {
       var t = props.t;
+      var officialPins = props.officialPins === true;
       var usePanelInfo = props.usePanelInfo;
       var panels = props.usePanels(function (snapshot) {
         return snapshot;
       });
       var layoutState = props.useLayout(function (snapshot) {
         return snapshot;
+      });
+      var pinnedIds = props.usePins(function (snapshot) {
+        return snapshot.pinned;
       });
       var panelActive = usePanelInfo(isPanelActive);
       var toggleShortcut = props.useShortcuts(shortcutFinder('sidebar.left.toggle'));
@@ -2830,18 +3815,24 @@ window.__ModuleLoader__.load({
       useLeadingClearance(railRef);
 
       var enabled = layoutState.enabled === true;
-      var hiddenIds = enabled && Array.isArray(layoutState.hidden) ? layoutState.hidden : [];
+      var hiddenIds = enabled && !officialPins && Array.isArray(layoutState.hidden) ? layoutState.hidden : [];
       // 影子注册会把宿主账本顺序改成保存的顺序；这里再兜一层，保证账本
       // 尚未刷新或影子尚未重建时工具栏也按同一顺序渲染。
       var orderSource = layoutState.order;
       var effectivePanels = enabled && orderSource ? panelsInOrder(panels, orderSource) : panels;
-      var split = splitPanels(effectivePanels, hiddenIds);
-      // 拖动时全部平铺，收起项保留在独立隐藏区，跨区松手才修改显隐。
-      var flattenRail = enabled && layoutState.dragActive === true;
+      var split = officialPins
+        ? splitOfficialPanels(effectivePanels, pinnedIds, PANEL_SLOTS)
+        : splitPanels(effectivePanels, hiddenIds);
+      // 旧版拖动时全部平铺，收起项保留在独立隐藏区；新版不维护第二套隐藏区。
+      var flattenRail = !officialPins && enabled && layoutState.dragActive === true;
       var visiblePanels = flattenRail
         ? effectivePanels.filter(function (panel) { return hiddenIds.indexOf(panel.id) === -1; })
         : split.visible;
-      var needsMore = !flattenRail && (split.overflow.length > 0 || split.hidden.length > 0);
+      var needsMore = !flattenRail && (officialPins
+        ? split.more.length > 0
+        : split.overflow.length > 0 || split.hidden.length > 0);
+      var morePanels = officialPins ? split.more : split.overflow;
+      var hiddenPanels = officialPins ? [] : split.hidden;
       var panelButton = function (panel) {
         return h(PanelButton, {
           key: 'panel:' + panel.id,
@@ -2887,11 +3878,21 @@ window.__ModuleLoader__.load({
           children.push(
             h(PanelOverflowMenu, {
               key: 'rail:more-panels',
-              panels: split.overflow,
-              hiddenPanels: split.hidden,
+              panels: morePanels,
+              hiddenPanels: hiddenPanels,
+              officialPins: officialPins,
               dragActive: flattenRail,
               t: t,
               usePanelInfo: usePanelInfo,
+              onReorder: officialPins && enabled
+                ? function (id, index) {
+                    var bucket = [];
+                    for (var moreIndex = 0; moreIndex < morePanels.length; moreIndex += 1) {
+                      bucket.push(morePanels[moreIndex].id);
+                    }
+                    if (props.layoutStore) reorderBucket(props.layoutStore, panels, bucket, id, index);
+                  }
+                : undefined,
               onSelect: function (panel) {
                 openPanel(panel, props.selectPanel, props.trackEntryClick);
               },
@@ -2919,7 +3920,8 @@ window.__ModuleLoader__.load({
       );
 
       // 「返回会话」只属于面板上下文：已经回到会话时没有可返回的目标，隐藏。
-      if (panelActive) {
+      // 它是独立组件开关，关闭后折叠态与展开态的两处入口一起消失。
+      if (panelActive && layoutState.backEnabled !== false) {
         children.push(
           h(
             RailButton,
@@ -2965,7 +3967,17 @@ window.__ModuleLoader__.load({
 
       var panels = createPanelsSource(ctx);
       var layout = createPanelLayoutStore(readLayoutPrefs());
-      var shadows = createShadowManager(ctx, layout);
+      var caps = createCapabilities(ctx);
+      var pins = createPinsStore();
+      var shadows = createShadowManager(ctx, layout, caps.officialPins);
+
+      // 新版固定状态独立于组件生命周期观测：Rail 在外层 chrome，SidebarChrome
+      // 可能在侧栏折叠时晚挂载；这里直接盯宿主 nav，保证切换折叠时状态已就绪。
+      if (caps.officialPins) {
+        ctx.effect(function () {
+          return installPinnedObserver(pins, panels.source);
+        }, 'fold-minimal: pinned observer');
+      }
 
       var syncAll = function () {
         panels.sync();
@@ -3001,10 +4013,14 @@ window.__ModuleLoader__.load({
 
       // 两处拖拽（展开侧栏行 / 折叠工具栏图标）共用一个状态 store。
       ctx.effect(function () {
-        return watchLayoutFlag(layout, 'enabled', function () { return installPanelDrag(layout, panels.source); });
+        return watchLayoutFlag(layout, 'enabled', function () {
+          return installPanelDrag(layout, panels.source, caps.officialPins);
+        });
       }, 'fold-minimal: expanded panel drag');
       ctx.effect(function () {
-        return watchLayoutFlag(layout, 'enabled', function () { return installRailDrag(layout, panels.source); });
+        return watchLayoutFlag(layout, 'enabled', function () {
+          return installRailDrag(layout, panels.source, caps.officialPins);
+        });
       }, 'fold-minimal: rail panel drag');
 
       var layoutActions = {
@@ -3019,6 +4035,9 @@ window.__ModuleLoader__.load({
         },
         setToolbarEnabled: function (enabled) {
           layout.setToolbarEnabled(enabled);
+        },
+        setBackEnabled: function (enabled) {
+          layout.setBackEnabled(enabled);
         },
       };
 
@@ -3067,10 +4086,14 @@ window.__ModuleLoader__.load({
                     selectPanel: actions.selectPanel,
                     backToSession: actions.backToSession,
                     trackEntryClick: actions.trackEntryClick,
+                    officialPins: caps.officialPins,
+                    releaseVersion: caps.releaseVersion,
+                    layoutStore: layout,
                     hooks: {
                       shortcuts: ctx.shortcuts.catalog,
                       panels: panels.source,
                       layout: layout.observable,
+                      pins: pins.observable,
                     },
                   };
                 },
@@ -3103,6 +4126,7 @@ window.__ModuleLoader__.load({
                 toggleTray: layoutActions.toggleTray,
                 resetLayout: layoutActions.resetLayout,
                 layoutStore: layout,
+                officialPins: caps.officialPins,
                 hooks: {
                   layout: layout.observable,
                   panels: panels.source,
@@ -3124,7 +4148,10 @@ window.__ModuleLoader__.load({
             inject: function () {
               return {
                 setToolbarEnabled: layoutActions.setToolbarEnabled,
+                setBackEnabled: layoutActions.setBackEnabled,
                 setLayoutEnabled: layoutActions.setLayoutEnabled,
+                officialPins: caps.officialPins,
+                releaseVersion: caps.releaseVersion,
                 hooks: { layout: layout.observable },
               };
             },
@@ -3133,10 +4160,31 @@ window.__ModuleLoader__.load({
         );
       });
 
-      // 「更多」按钮只在 panellist.actions 有注册时出现。新部件运行时注册一个
-      // 前置分组，既保证二级区锚点存在，也把收起项列在宿主固定动作之前。
+      // 「更多」按钮只在 panellist.actions 有注册时出现。
+      // 新版：官方「更多」已存在，这里只放一个无渲染探针：同步固定状态、
+      // 在官方浮层里支持拖动换位；不再插入第二套收起分组。
+      // 旧版：保留原来的前置分组与二级区。
       ctx.effect(function () {
         return ctx.slots.inject('sidebar.panellist.actions', function () {
+          if (caps.officialPins) {
+            return ctx.slots.register(
+              {
+                name: 'sidebar.panellist.actions',
+                id: 'fold-minimal.more-observer',
+                order: -1000000,
+                locale: NS,
+                inject: function () {
+                  return {
+                    pinStore: pins,
+                    panelsSource: panels.source,
+                    layoutStore: layout,
+                    hooks: { layout: layout.observable },
+                  };
+                },
+              },
+              MoreMenuObserver,
+            );
+          }
           return watchLayoutFlag(layout, 'enabled', function () {
             return ctx.slots.register(
               {
@@ -3180,18 +4228,33 @@ window.__ModuleLoader__.load({
         moveVisibleOrder: moveVisibleOrder,
         replaceVisibleOrder: replaceVisibleOrder,
         replaceHiddenOrder: replaceHiddenOrder,
+        replaceBucketOrder: replaceBucketOrder,
         panelsInOrder: panelsInOrder,
         panelIdsOf: panelIdsOf,
         sanitizeLayoutPrefs: sanitizeLayoutPrefs,
         createPanelLayoutStore: createPanelLayoutStore,
         createShadowPanel: createShadowPanel,
         createShadowManager: createShadowManager,
+        createPinsStore: createPinsStore,
         readLayoutPrefs: readLayoutPrefs,
         placePanel: placePanel,
+        reorderBucket: reorderBucket,
         dragOvershoot: dragOvershoot,
+        readBootRelease: readBootRelease,
+        parseVersion: parseVersion,
+        compareVersions: compareVersions,
+        hasOfficialMore: hasOfficialMore,
+        createCapabilities: createCapabilities,
+        splitOfficialPanels: splitOfficialPanels,
+        hoverBridgeContains: hoverBridgeContains,
+        hostPanelRow: hostPanelRow,
+        hostPanelRowItem: hostPanelRowItem,
+        pinnedIdsFromLabels: pinnedIdsFromLabels,
+        installPinnedObserver: installPinnedObserver,
         installDragCollapse: installDragCollapse,
         installPanelDrag: installPanelDrag,
         installRailDrag: installRailDrag,
+        installMenuReorder: installMenuReorder,
         installSidebarMoreHover: installSidebarMoreHover,
         isPanelActive: isPanelActive,
       },
