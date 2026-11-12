@@ -151,11 +151,18 @@
 
 ## 安装
 
-在 DSH 里用 `plugin_manager`（或等效的 `dsh plugin --profile desktop add`）：
+普通用户在 DSH 的 **插件 → 添加插件** 里输入 npm 包名 `dsh-fold-minimal`，安装后点 **立即启用**。
+之后升级走插件页 **刷新 / 更新到** 或详情页 **版本** 区块（DSH 自带的插件更新组件）；Git、
+本地目录或 `.tgz` 安装的版本没有这个区块，需要先移除再按包名安装一次。
+
+开发时改用本地目录链接（桌面版 profile 通常叫 `desktop`）：
 
 ```bash
-plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
+dsh plugin --profile <profile> add link:/path/to/dsh-fold-minimal
 ```
+
+也可以让 agent 调用 `plugin_manager` 的 `install_bundle`，`target` 填
+`link:/path/to/dsh-fold-minimal`。
 
 安装后折叠左侧栏即可看到效果；停用/卸载本插件会立刻回退到官方按钮，不需要重启。
 
@@ -213,11 +220,18 @@ plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
 
 ## 发布与安装
 
-DSH 插件的发布单位是一个 **bundle 包**，不要求上架 npm，也不要求经过中心审核。能被
-`plugin_manager` 安装即可：
+DSH 插件的发布单位是一个 **bundle 包**。发布到 npm 后，用户在 **插件 → 添加插件** 输入包名
+即可安装；从 npm 安装的第三方 bundle 还能使用 DSH 自带的检查与更新（插件页刷新 /
+详情页「更新到」/「版本」区块）升级。
 
 - **bundle 清单**：`package.json` 的 `dsh.bundle.patch` 指向补丁 YAML；补丁用
   `insert` 插入 Loader 行（`id`、`name`、可选 `config`）。
+- **平台声明**：`dsh.bundle.platforms: ["darwin"]` 让启动器和插件管理器在非 macOS Host 上
+  跳过/隐藏本插件；省略时允许所有平台。
+- **DSH 版本要求**：`engines.dsh` 声明兼容范围（本仓库为 `>=0.2.0-0 <0.3.0-0`）。安装、
+  启动和「版本」列表都按它判断兼容性，不兼容的版本不会安装/加载；官方实现按
+  `includePrerelease` 匹配，因此 `0.2.x` 的预发布版也被接受。上界写成 `<0.3.0-0`
+  而不是 `<0.3.0`，是为了同时排除 0.3 的预发布版。
 - **浏览器半（可选）**：`dsh.client` 声明 `platform: web`、`immediately`、`inject`，
   `exports["./client"]` 指向构建好的 `client.js`；bundle 里用
   `window.__ModuleLoader__.load` 注册 lazy factory，`id` 等于包名。
@@ -225,47 +239,69 @@ DSH 插件的发布单位是一个 **bundle 包**，不要求上架 npm，也不
   `exports["./icon"]` 指向图标。图标必须是包内有效的 SVG/PNG/JPEG/WebP，≤ 256 KiB，
   不允许绝对路径、外链或越界符号链接。
 - **files**：补丁、locale、图标、所有运行时文件和资源都要在 `files` 里；本地链接安装
-  不走 `files` 过滤，打包/发布时才会。发布前用 `pnpm pack` 检查实际文件列表。
+  不走 `files` 过滤，打包/发布时才会。发布前用 `npm pack --dry-run` 检查实际文件列表。
 - **客户端约束**：不要在 factory 外做副作用；样式、监听、定时器、槽位注册都放在
   `apply` 里并通过 `ctx.effect` 返回清理；文案走 locale；样式只用 `--dsw-alias-*`
   等主题 token；不要 import 任何 `@deepseek-ai/dsh-client-*` 包。
 - **安装入口**：`plugin_manager install_bundle` 接受绝对目录、npm 包名/版本、Git 地址
   （`github:user/repo#ref` 或 `https://github.com/user/repo`）和 `.tgz`/`.tar.gz` URL。
   DSH 的 **插件 → 添加插件** 对话框接受同一组 spec，是普通用户最方便的安装方式。
-- **发现页 / 官方市场**：DSH 的 Discover 读独立的 market index（JSON），这是另一条
-  收录流程；直接安装不依赖它。
+- **发现页 / 官方市场**：DSH 的 Discover 读独立的 market index（JSON），这是另一条收录
+  流程；发布到 npm 只保证「按包名安装」，不会自动出现在 Discover/推荐里。
+
+### npm 发布与升级链路
+
+官方插件页只对「从注册表、以自身包名安装」的第三方 bundle 显示 **版本** 区块并允许
+**更新**：
+
+- profile 依赖按注册表 spec 保存（不是 `npm:` 别名，也不是 `link:`/`file:`/Git/tarball）；
+- 包版本是合法 semver，且新版本仍声明 `dsh.bundle`；
+- 新版本的 `engines.dsh` / DSH peer 要求接受当前运行的 DSH。
+
+所以发布到 npm 后，用户在插件页输入 `dsh-fold-minimal` 安装一次，之后升级不需要卸载重装。
+发布前确认：
+
+```bash
+npm pack --dry-run        # 检查 tarball 内容
+npm publish --access public
+```
+
+若本机 registry 指向镜像（例如 npmmirror），发布时要显式使用官方源；`package.json` 的
+`publishConfig.registry` 已固定为 `https://registry.npmjs.org/`。发布后若镜像尚未同步，
+在插件页把 **安装源** 切到 npm 官方源即可。
 
 本仓库对照：
 
 | 项 | 状态 |
 |---|---|
 | `dsh.bundle.patch` + `cordis.patch.yml` | ✅ |
+| `dsh.bundle.platforms: ["darwin"]` | ✅ |
+| `engines.dsh: ">=0.2.0-0 <0.3.0-0"` | ✅ |
 | `dsh.client` + `exports["./client"]` + lazy factory | ✅ |
 | `meta.title` / `meta.description`（中英） | ✅ |
 | `exports["./icon"]` + 原创 SVG 图标（< 256 KiB） | ✅ |
 | `files` 覆盖补丁、locale、图标、运行时资源 | ✅ |
 | 无 DSH Client 包 import、无额外构建依赖 | ✅（只 require 平台基座的 react / react-dom） |
 | 版本 / MIT License / 仓库元信息 | ✅ |
+| `publishConfig.registry` 固定 npm 官方源 | ✅ |
 
 ### 给别人安装
 
-把仓库地址粘到 **DSH → 插件 → 添加插件**：
+在 **DSH → 插件 → 添加插件** 输入包名：
 
 ```
-https://github.com/cavenzhong/dsh-fold-minimal
+dsh-fold-minimal
 ```
 
-也可以让 agent 用：
-
-```text
-plugin_manager install_bundle --target https://github.com/cavenzhong/dsh-fold-minimal
-```
+也可以让 agent 调用 `plugin_manager` 的 `install_bundle`，`target` 填 `dsh-fold-minimal`。
 
 本地开发仍用：
 
-```text
-plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
+```bash
+dsh plugin --profile <profile> add link:/path/to/dsh-fold-minimal
 ```
+
+注意：`link:` 安装不会出现「版本」区块；要验证官方升级链路，先移除 link 版本，再按包名安装一次。
 
 ## 测试
 

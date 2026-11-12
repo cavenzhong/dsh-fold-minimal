@@ -2,7 +2,7 @@
 
 折叠 DSH 左侧栏后，插件、自动化任务等面板图标依然显示在左上角，点击即可打开。
 
-macOS 桌面版 · 零额外依赖 · [安装](#安装)
+macOS 桌面版 · 零额外依赖 · [npm](https://www.npmjs.com/package/dsh-fold-minimal) · [安装](#安装)
 
 ## 亮点
 
@@ -59,38 +59,44 @@ macOS 桌面版 · 零额外依赖 · [安装](#安装)
 
 ## 安装
 
-**需要**：macOS 桌面版 DSH，且左侧栏支持折叠。
+**需要**：macOS 桌面版 DSH（仅 Darwin），且左侧栏支持折叠。
 
-### 方式一：在插件页安装（推荐）
+### 方式一：在插件页按包名安装（推荐）
 
-1. 打开 **DSH → 插件 → 添加插件**，粘贴仓库地址：
+1. 打开 **DSH → 插件 → 添加插件**，输入包名：
 
    ```text
-   https://github.com/cavenzhong/dsh-fold-minimal
+   dsh-fold-minimal
    ```
 
-2. 安装完成后，点击 **立即启用**。
+2. 保持默认安装源，点击 **安装**；完成后点击 **立即启用**。
 3. 折叠左侧栏，即可使用左上角的面板入口；需要排序与折叠时，到 **插件 → dsh-fold-minimal → 组件开关** 打开「面板挪位与折叠」。
 
-### 方式二：固定版本安装包
+安装后插件由 npm 提供。之后有新版本时，插件页会显示 **可更新**，详情页头部出现 **更新到 x.y.z**；也可以展开详情页下方的 **版本** 区块后更新。
 
-在 [Releases](https://github.com/cavenzhong/dsh-fold-minimal/releases) 页使用已有 `.tgz` 安装包的**下载地址**，粘贴到「添加插件」即可锁定版本。各版本是否提供附件以 Release 页面为准。
+> 中国大陆网络下默认走镜像源；刚发布的版本可能晚几分钟同步，把 **安装源** 切到 npm 官方源可立即安装。
+
+### 方式二：固定版本或离线安装
+
+需要锁定版本时，在「添加插件」中输入带版本号的包名，例如：
+
+```text
+dsh-fold-minimal@0.4.3
+```
+
+也可以从 [Releases](https://github.com/cavenzhong/dsh-fold-minimal/releases) 下载 `.tgz`，把文件地址粘贴到「添加插件」。
 
 <details>
 <summary>方式三：让 agent 安装</summary>
 
-让 DSH 中的 agent 安装：
-
-```text
-plugin_manager install_bundle --target https://github.com/cavenzhong/dsh-fold-minimal
-```
+让 DSH 中的 agent 安装：调用 `plugin_manager` 工具的 `install_bundle` 动作，`target` 填 `dsh-fold-minimal`。
 
 </details>
 
 ### 停用、更新与卸载
 
 - **停用**：在插件页关闭开关，立即恢复官方折叠态按钮与拖拽行为，不需要重启。
-- **更新**：按方式一重新安装仓库版本，或按方式二选择已有 Release 包；更新后停用再启用一次即可加载新版客户端。
+- **更新**：插件页的 **刷新** 会检查更新；有新版本时插件卡片显示 **可更新**，打开详情页点头部的 **更新到 x.y.z** 即可，也可以在下方 **版本** 区块展开新版本列表后点某一行的 **更新**。这是 DSH 自带的插件更新组件，只对从 npm 按包名安装的版本生效；Git 地址、本地目录或 `.tgz` 安装的版本没有「版本」区块，需要先移除，再按方式一安装一次，之后即可在插件页更新。Host 未启用 HMR 时，更新完成会提示重启后生效。
 - **卸载**：在插件页移除即可；本插件的排序状态只保存在浏览器本地，不写配置文件。
 
 ## 使用范围
@@ -98,7 +104,9 @@ plugin_manager install_bundle --target https://github.com/cavenzhong/dsh-fold-mi
 | 项 | 说明 |
 |---|---|
 | 系统 | macOS 桌面版（仅 Darwin）；展开态返回按钮、排序拖拽与「更多」二级区都只在 darwin 生效 |
-| DSH | 开发与验证环境为 0.2.2-rc.1；需要支持侧栏折叠的版本 |
+| DSH | 开发与验证环境为 0.2.2-rc.1；声明兼容 DSH 0.2.x（`>=0.2.0-0 <0.3.0-0`），需要支持侧栏折叠的版本 |
+| 安装 | npm 包名 `dsh-fold-minimal`；插件页「添加插件」输入包名即可 |
+| 更新 | DSH 插件页自带的检查与更新（刷新 / 更新到 / 版本区块）；只对从 npm 按包名安装的版本生效 |
 | 主题 | 跟随 DSH 浅色 / 深色主题，只使用主题 token |
 | 面板来源 | 所有 `sidebar.panellist` 注册者，包括未固定的面板 |
 | 组件开关 | 插件详情页提供「折叠菜单」（默认开）与「面板挪位与折叠」（默认关）两个开关；状态保存在浏览器本地 |
@@ -178,6 +186,8 @@ plugin_manager install_bundle --target https://github.com/cavenzhong/dsh-fold-mi
 <summary>DSH 升级后失效了？</summary>
 
 插件只依赖公开的插槽与布局接口，不 import 任何 DSH Client 包；展开态的 DOM 增强依赖 `data-sidebar-toggle` 等宿主标记。若宿主改动了这些结构，可能退化或失效；在插件页停用即可回到官方按钮，也欢迎[反馈](https://github.com/cavenzhong/dsh-fold-minimal/issues)。
+
+插件声明兼容 DSH 0.2.x（`>=0.2.0-0 <0.3.0-0`）。DSH 升级到不兼容版本时，插件会拒绝加载而不是带着不兼容运行；等插件发布兼容版本后，在插件页更新即可。
 </details>
 
 ## 反馈与贡献
@@ -193,9 +203,11 @@ plugin_manager install_bundle --target https://github.com/cavenzhong/dsh-fold-mi
 
 本地开发时，在 DSH 中安装仓库目录：
 
-```text
-plugin_manager install_bundle --target link:/path/to/dsh-fold-minimal
+```bash
+dsh plugin --profile <profile> add link:/path/to/dsh-fold-minimal
 ```
+
+也可以让 agent 调用 `plugin_manager` 的 `install_bundle`，`target` 填 `link:/path/to/dsh-fold-minimal`。
 
 修改 `client.js` 后，停用再启用插件即可加载。运行测试：
 
@@ -217,7 +229,7 @@ pnpm test
 - **v0.2.0 · 2026-11-05**：新增返回会话按钮，提供 Release 安装包。
 - **v0.1.0 · 2026-11-04**：折叠态显示左侧面板图标，支持顺序与选中态同步。
 
-完整版本与安装包见 [Releases](https://github.com/cavenzhong/dsh-fold-minimal/releases)。
+从 0.4.3 起同时发布到 npm（`dsh-fold-minimal`），安装与更新方式见[安装](#安装)；完整版本与安装包见 [Releases](https://github.com/cavenzhong/dsh-fold-minimal/releases)。
 
 </details>
 

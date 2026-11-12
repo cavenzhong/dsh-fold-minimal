@@ -2,6 +2,9 @@
   "name": "dsh-fold-minimal",
   "version": "0.4.3",
   "description": "侧栏折叠后，把左侧全局面板图标按左侧菜单顺序映射到窗口左上角的折叠工具栏；面板超过 4 个时第 4 格变成「更多」，悬停即展开其余面板；把侧栏拖到最小后继续往左拖，松手即收起；打开面板时，新建会话后还会出现「返回会话」按钮，一键回到最后一次工作的会话；v0.4 新增展开态返回按钮，以及可在设置中开启的「面板排序与折叠」：展开侧栏与折叠工具栏共用顺序、按住拖动排序，面板可拖进「更多」收起并拖回恢复。",
+  "engines": {
+    "dsh": ">=0.2.0-0 <0.3.0-0"
+  },
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -29,7 +32,8 @@
   "dsh": {
     "manifestVersion": 1,
     "bundle": {
-      "patch": "./cordis.patch.yml"
+      "patch": "./cordis.patch.yml",
+      "platforms": ["darwin"]
     },
     "client": {
       "platform": "web",
@@ -58,5 +62,8 @@
     "plugin",
     "productivity"
   ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "license": "MIT"
 }
