@@ -73,6 +73,9 @@ const {
   hostPanelRow,
   hostPanelRowItem,
   pinnedIdsFromLabels,
+  menuRowForTarget,
+  resolveOfficialSetPinned,
+  officialDropPlan,
   installDragCollapse,
   installPanelDrag,
   installRailDrag,
@@ -111,6 +114,10 @@ test('中英文语言表键集合一致且都有文案', () => {
     'tray.empty',
     'tray.expand',
     'tray.collapse',
+    'rail.pinned',
+    'rail.unpinned',
+    'rail.pinHint',
+    'rail.unpinHint',
   ]) {
     assert.ok(dictionaries.zh[key], `缺中文文案：${key}`);
     assert.ok(dictionaries.en[key], `缺英文文案：${key}`);
@@ -1687,23 +1694,107 @@ test('无影子标记时按 aria-label 与面板顺序反推固定项', () => {
 });
 
 
-test('折叠「更多」浮层拖动回调使用注入的 layoutStore，不再引用未定义变量', () => {
-  const panels = fakePanels(5);
-  const layout = { enabled: true, order: [], hidden: [], backEnabled: true };
-  const pinned = panels.map((panel) => panel.id);
-  const { tree, injected } = renderRail(
+test('官方「更多」整行命中：标题/空白可拖，图钉按钮不触发', () => {
+  const marker = {
+    getAttribute: (name) => (name === 'data-dfm-id' ? 'panel-0' : null),
+  };
+  const row = {
+    contains: () => true,
+    matches: () => false,
+    querySelector: () => marker,
+    getAttribute: () => null,
+    parentElement: null,
+  };
+  const menu = { contains: (node) => node === row || node === pin };
+  const label = {
+    closest: (selector) => (selector === 'button' ? row : null),
+  };
+  assert.deepEqual(menuRowForTarget(label, menu, 'data-dfm-id'), { row, id: 'panel-0' });
+
+  const pin = {
+    contains: () => false,
+    matches: () => false,
+    querySelector: () => null,
+    parentElement: null,
+    closest: (selector) => (selector === 'button' ? pin : null),
+  };
+  assert.equal(menuRowForTarget(pin, menu, 'data-dfm-id'), null);
+});
+
+test('从官方 shell.leading 注册项解析 setPinned，失败时返回 null', () => {
+  const setPinned = () => {};
+  const ctx = {
+    slots: {
+      entries: () => [
+        { options: { inject: () => { throw new Error('bad'); } } },
+        { options: { inject: () => ({ toggleSidebar() {} }) } },
+        { options: { inject: () => ({ setPinned, hooks: { entryPins: {} } }) } },
+      ],
+    },
+  };
+  assert.equal(resolveOfficialSetPinned(ctx), setPinned);
+  assert.equal(resolveOfficialSetPinned({ slots: { entries: () => [] } }), null);
+  assert.equal(resolveOfficialSetPinned({}), null);
+});
+
+test('跨固定边界落点：固定/取消固定意图与目标分组', () => {
+  const all = ['p0', 'u1', 'p2', 'u3'];
+  const pinnedSet = Object.create(null);
+  pinnedSet.p0 = true;
+  pinnedSet.p2 = true;
+
+  assert.deepEqual(officialDropPlan(all, pinnedSet, 'u1', true), {
+    bucket: ['p0', 'u1', 'p2'],
+    pinChange: true,
+    currentPinned: false,
+  });
+  assert.deepEqual(officialDropPlan(all, pinnedSet, 'p2', false), {
+    bucket: ['u1', 'p2', 'u3'],
+    pinChange: true,
+    currentPinned: true,
+  });
+  assert.deepEqual(officialDropPlan(all, pinnedSet, 'p0', true), {
+    bucket: ['p0', 'p2'],
+    pinChange: false,
+    currentPinned: true,
+  });
+  assert.deepEqual(officialDropPlan(all, null, 'u1', false), {
+    bucket: ['u1'],
+    pinChange: true,
+    currentPinned: true,
+  });
+});
+
+test('新版拖拽平铺：固定区与未固定区分组展示，不再渲染竖向「更多」', () => {
+  const panels = fakePanels(4);
+  const layout = {
+    enabled: true,
+    order: [],
+    hidden: [],
+    backEnabled: true,
+    dragActive: true,
+    dragPanelId: 'panel-1',
+  };
+  const { tree } = renderRail(
     { activePanelId: null },
     panels,
     layout,
-    { release: '0.2.2-rc.2', pinned },
+    { release: '0.2.2-rc.2', pinned: ['panel-0', 'panel-2'] },
   );
-  const overflow = flatten(tree).find(
-    (element) => typeof element.type === 'function' && typeof element.props.onReorder === 'function',
-  );
-  assert.ok(overflow, '「更多」浮层应拿到拖动回调');
-  assert.doesNotThrow(() => overflow.props.onReorder('panel-4', 0));
+  const elements = flatten(tree);
+  const pinnedZone = elements.find((element) => element.props['data-dfm-rail-zone'] === 'pinned');
+  const unpinnedZone = elements.find((element) => element.props['data-dfm-rail-zone'] === 'unpinned');
+  assert.ok(pinnedZone && unpinnedZone);
   assert.deepEqual(
-    injected.layoutStore.getSnapshot().order,
-    ['panel-0', 'panel-1', 'panel-2', 'panel-4', 'panel-3'],
+    flatten(pinnedZone).filter((element) => element.props.panel !== undefined).map((element) => element.props.panel.id),
+    ['panel-0', 'panel-2'],
+  );
+  assert.deepEqual(
+    flatten(unpinnedZone).filter((element) => element.props.panel !== undefined).map((element) => element.props.panel.id),
+    ['panel-1', 'panel-3'],
+  );
+  assert.equal(
+    elements.some((element) => typeof element.type === 'function' && element.props.testId === 'more-panels'),
+    false,
   );
 });

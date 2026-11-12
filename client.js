@@ -148,6 +148,10 @@ window.__ModuleLoader__.load({
       'rail.label': '折叠态工具栏',
       'rail.hide': '拖到这里隐藏',
       'rail.restore': '拖到这里显示',
+      'rail.pinned': '固定面板',
+      'rail.unpinned': '未固定面板',
+      'rail.pinHint': '拖到这里固定',
+      'rail.unpinHint': '拖到这里取消固定',
       'toggle.open': '打开侧边栏',
       'session.new.label': '新建会话',
       'session.back.label': '返回会话',
@@ -155,7 +159,7 @@ window.__ModuleLoader__.load({
       'layout.title': '面板挪位与折叠',
       'layout.description': '按住拖动面板调整顺序，蓝色插入线提示落点；展开侧栏与折叠工具栏同步；把面板拖进「更多」可收起，再拖回恢复。',
       'layout.title.new': '面板挪位',
-      'layout.description.new': '按住拖动面板调整顺序，蓝色插入线提示落点；展开侧栏、折叠工具栏与官方「更多」共享同一顺序。新版收纳由官方「更多」负责：在「更多」里固定或取消固定面板，本插件不再维护第二套隐藏状态。',
+      'layout.description.new': '按住拖动面板调整顺序，蓝色插入线提示落点；展开侧栏、折叠工具栏与官方「更多」共享同一顺序。折叠工具栏拖动时会整体展开并跟随一个图标 ghost，拖过固定边界即可固定或取消固定；收纳由官方状态负责，本插件不维护第二套隐藏状态。',
       'settings.toolbar.title': '折叠菜单',
       'settings.toolbar.desc': '折叠侧栏后在窗口左上角显示面板工具栏；拖到最窄继续左拖可收起侧栏。',
       'settings.back.title': '返回会话按钮',
@@ -173,6 +177,10 @@ window.__ModuleLoader__.load({
       'rail.label': 'Collapsed toolbar',
       'rail.hide': 'Drag here to hide',
       'rail.restore': 'Drag here to show',
+      'rail.pinned': 'Pinned panels',
+      'rail.unpinned': 'Unpinned panels',
+      'rail.pinHint': 'Drag here to pin',
+      'rail.unpinHint': 'Drag here to unpin',
       'toggle.open': 'Open sidebar',
       'session.new.label': 'New session',
       'session.back.label': 'Back to session',
@@ -180,7 +188,7 @@ window.__ModuleLoader__.load({
       'layout.title': 'Panel reorder & fold',
       'layout.description': 'Drag a panel to reorder it (a blue insertion line shows the drop position); the expanded list and the collapsed toolbar share one order. Drag a panel into More to put it away, and drag it back to restore.',
       'layout.title.new': 'Panel reorder',
-      'layout.description.new': 'Drag a panel to reorder it (a blue insertion line shows the drop position); the expanded list, collapsed toolbar, and the official More menu share one order. The official More menu now owns hiding: pin or unpin a panel there; this plugin no longer keeps a second hidden state.',
+      'layout.description.new': 'Drag a panel to reorder it (a blue insertion line shows the drop position); the expanded list, collapsed toolbar, and the official More menu share one order. Dragging in the collapsed toolbar expands it and follows one ghost icon; crossing the pin boundary pins or unpins through the official state. The plugin keeps no second hidden state.',
       'settings.toolbar.title': 'Collapsed menu',
       'settings.toolbar.desc': 'Map panel icons to the top-left toolbar when the sidebar is collapsed; drag past the minimum width to collapse it.',
       'settings.back.title': 'Back-to-session button',
@@ -966,6 +974,49 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 从官方 shell.leading 注册项里取官方的 `setPinned`。
+     *
+     * `ui-sidebar` 把 `{ setPinned, hooks.entryPins }` 放在它自己的 inject 结果里；
+     * 折叠工具栏的拖动需要跨固定边界时，直接调用这个函数，不模拟点击、不维护
+     * 第二套固定状态。找不到时返回 null，调用方降级为区内排序。
+     * @param ctx - 客户端根上下文。
+     * @returns 官方 `setPinned(id, pinned)` 或 null。
+     */
+    function resolveOfficialSetPinned(ctx) {
+      try {
+        if (!ctx.slots || typeof ctx.slots.entries !== 'function') return null;
+        var entries = ctx.slots.entries(SLOT);
+        for (var index = 0; index < entries.length; index += 1) {
+          var entry = entries[index];
+          if (!entry) continue;
+          var inject = typeof entry.inject === 'function'
+            ? entry.inject
+            : entry.options && typeof entry.options.inject === 'function'
+              ? entry.options.inject
+              : null;
+          if (!inject) continue;
+          var injected;
+          try {
+            injected = inject();
+          } catch (error) {
+            continue;
+          }
+          if (
+            injected &&
+            typeof injected.setPinned === 'function' &&
+            injected.hooks &&
+            injected.hooks.entryPins
+          ) {
+            return injected.setPinned;
+          }
+        }
+      } catch (error) {
+        // 自定义组合可能没有官方侧栏；降级为区内排序。
+      }
+      return null;
+    }
+
+    /**
      * 新版折叠工具栏切分：只平铺官方固定（pinned）的面板，未固定面板与溢出项
      * 一起进「更多」。这样折叠菜单与展开侧栏看到的固定集合一致。
      * @param panels - 已按生效顺序排列的面板快照。
@@ -1047,6 +1098,36 @@ window.__ModuleLoader__.load({
       var next = replaceBucketOrder(all, bucket, moved);
       store.setOrder(next);
       return true;
+    }
+
+    /**
+     * 计算一次跨区落点要修改的 pin 意图与目标分组。
+     *
+     * `pinnedSet === null` 表示固定状态未知，先按全部固定处理。返回的 bucket
+     * 可以直接交给 `reorderBucket`。
+     * @param allIds - 完整顺序。
+     * @param pinnedSet - 当前固定集合，或 null。
+     * @param draggedId - 被拖拽的面板 id。
+     * @param destinationPinned - 目标区是否固定。
+     * @returns `{ bucket, pinChange, currentPinned }`。
+     */
+    function officialDropPlan(allIds, pinnedSet, draggedId, destinationPinned) {
+      var currentPinned = pinnedSet === null ? true : pinnedSet[draggedId] === true;
+      var bucket = [];
+      for (var scan = 0; scan < allIds.length; scan += 1) {
+        var id = allIds[scan];
+        var pinnedFor = id === draggedId
+          ? destinationPinned
+          : pinnedSet === null
+            ? true
+            : pinnedSet[id] === true;
+        if (pinnedFor === destinationPinned) bucket.push(id);
+      }
+      return {
+        bucket: bucket,
+        pinChange: currentPinned !== destinationPinned,
+        currentPinned: currentPinned,
+      };
     }
 
     /**
@@ -1716,8 +1797,6 @@ window.__ModuleLoader__.load({
       var frame = React.useRef(null);
       var tRef = React.useRef(props.t);
       tRef.current = props.t;
-      var onReorderRef = React.useRef(props.onReorder);
-      onReorderRef.current = props.onReorder;
       var dragRef = React.useRef(props.dragActive);
       dragRef.current = props.dragActive;
       var stickyRef = React.useRef(sticky);
@@ -1849,16 +1928,6 @@ window.__ModuleLoader__.load({
           window.removeEventListener('resize', onViewport);
           window.removeEventListener('blur', close);
         };
-      }, [open]);
-
-      // 浮层里的行可以原地拖动换位；旧版收起项也走同一个分组。
-      React.useLayoutEffect(function () {
-        if (!open || typeof document === 'undefined' || !onReorderRef.current) return undefined;
-        var menu = menuRef.current;
-        if (!menu) return undefined;
-        return installMenuReorder(menu, RAIL_MENU_ID_ATTR, function (id, index) {
-          if (onReorderRef.current) onReorderRef.current(id, index);
-        }, tRef);
       }, [open]);
 
       var active = props.usePanelInfo(function (info) {
@@ -2953,6 +3022,35 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 在浮层里把一次指针命中解析成“包含该面板标记的整行按钮”。
+     *
+     * 官方「更多」把图标渲染在行按钮内部，所以按标题/空白时不能直接 closest
+     * 到标记；这里先找指针所在的按钮，再检查按钮内部是否有面板标记。
+     * 行内的图钉按钮是独立按钮，不包含标记，因此不会误触发整行拖动。
+     * @param target - pointerdown 目标。
+     * @param menu - 浮层根节点。
+     * @param idAttr - 面板 id 属性名。
+     * @returns `{ row, id }` 或 null。
+     */
+    function menuRowForTarget(target, menu, idAttr) {
+      if (!target || typeof target.closest !== 'function' || !menu) return null;
+      var selector = '[' + idAttr + ']';
+      var button = target.closest('button');
+      while (button && menu.contains(button)) {
+        var marker = null;
+        if (typeof button.matches === 'function' && button.matches(selector)) marker = button;
+        else if (typeof button.querySelector === 'function') marker = button.querySelector(selector);
+        if (marker) {
+          var id = marker.getAttribute(idAttr);
+          if (id) return { row: button, id: id };
+        }
+        var parent = button.parentElement;
+        button = parent && typeof parent.closest === 'function' ? parent.closest('button') : null;
+      }
+      return null;
+    }
+
+    /**
      * 在任意浮层菜单里做纵向换位：浮层由宿主 portal 渲染，行也由宿主渲染，
      * 这里只按 `idAttr` 找到行、画插入线，松手后把新顺序交给调用方。
      * 官方的「更多」和折叠工具栏自己的「更多」共用这一个控制器。
@@ -3093,18 +3191,12 @@ window.__ModuleLoader__.load({
 
       function onPointerDown(event) {
         if (event.button !== 0 || session) return;
-        var target = event.target;
-        if (!target || typeof target.closest !== 'function') return;
-        var marker = target.closest(selector);
-        if (!marker) return;
-        var row = marker.closest('button');
-        if (!row || !menu.contains(row)) return;
-        var id = marker.getAttribute(idAttr);
-        if (!id) return;
+        var hit = menuRowForTarget(event.target, menu, idAttr);
+        if (!hit) return;
         session = {
           pointerId: event.pointerId,
-          id: id,
-          row: row,
+          id: hit.id,
+          row: hit.row,
           startX: event.clientX,
           startY: event.clientY,
           x: event.clientX,
@@ -3549,8 +3641,13 @@ window.__ModuleLoader__.load({
      * @param panelsSource - 当前面板快照。
      * @returns 清理函数。
      */
-    function installRailDrag(store, panelsSource, officialPins) {
+    function installRailDrag(store, panelsSource, options) {
       if (typeof document === 'undefined') return undefined;
+      if (typeof options === 'boolean') options = { officialPins: options };
+      options = options || {};
+      var officialPins = options.officialPins === true;
+      var pins = options.pins || null;
+      var setPinned = typeof options.setPinned === 'function' ? options.setPinned : null;
       var session = null;
       var indicator = createInsertionIndicator();
       var frame = null;
@@ -3564,21 +3661,40 @@ window.__ModuleLoader__.load({
         return document.querySelector('[data-fold-minimal="rail"]');
       }
 
-      function railPanelButtons() {
-        var rail = railElement();
-        if (!rail) return [];
-        return railButtons(rail);
+      function pinSet() {
+        if (!pins || typeof pins.getPinned !== 'function') return null;
+        var ids = pins.getPinned();
+        if (!Array.isArray(ids)) return null;
+        var set = Object.create(null);
+        for (var index = 0; index < ids.length; index += 1) set[ids[index]] = true;
+        return set;
+      }
+
+      function isPinnedId(id, set) {
+        return set === null ? true : set[id] === true;
+      }
+
+      function zoneContains(rect, x, y, pad) {
+        var gap = Number.isFinite(pad) ? pad : 6;
+        return x >= rect.left - gap && x <= rect.right + gap &&
+          y >= rect.top - 12 && y <= rect.bottom + 12;
       }
 
       function officialTargetAt(x, y, id) {
         var rail = railElement();
         if (!rail) return null;
-        var railRect = rail.getBoundingClientRect();
-        if (x < railRect.left - 12 || x > railRect.right + 12 ||
-            y < railRect.top - 12 || y > railRect.bottom + 12) return null;
-        var buttons = railButtons(rail);
-        if (!buttons.length) return null;
-        return targetAt(x, id, rail);
+        var pinnedZone = rail.querySelector('[data-dfm-rail-zone="pinned"]');
+        var unpinnedZone = rail.querySelector('[data-dfm-rail-zone="unpinned"]');
+        if (!pinnedZone || !unpinnedZone) return null;
+        var pinnedRect = pinnedZone.getBoundingClientRect();
+        var unpinnedRect = unpinnedZone.getBoundingClientRect();
+        var intoPinned = null;
+        if (zoneContains(pinnedRect, x, y, 6)) intoPinned = true;
+        else if (zoneContains(unpinnedRect, x, y, 6)) intoPinned = false;
+        if (intoPinned === null) return null;
+        var target = targetAt(x, id, intoPinned ? pinnedZone : unpinnedZone);
+        target.intoPinned = intoPinned;
+        return target;
       }
 
       function railButtons(zone) {
@@ -3705,14 +3821,24 @@ window.__ModuleLoader__.load({
         var y = event.clientY;
         var active = drag.active;
         if (officialPins) {
-          var bucket = railPanelButtons().map(function (entry) { return entry.id; });
+          var currentSet = pinSet();
+          var currentPinned = isPinnedId(drag.id, currentSet);
           var officialTarget = active ? officialTargetAt(x, y, drag.id) : null;
+          var destinationPinned = officialTarget ? officialTarget.intoPinned : currentPinned;
+          var plan = officialDropPlan(
+            panelIdsOf(panelsInOrder(panelsSource.getSnapshot(), store.getSnapshot().order)),
+            currentSet,
+            drag.id,
+            destinationPinned,
+          );
           resetSession();
           if (!active) return;
           suppressNextClick();
-          if (officialTarget) {
-            reorderBucket(store, panelsSource.getSnapshot(), bucket, drag.id, officialTarget.index);
-          }
+          if (!officialTarget) return;
+          // 跨固定边界时调用官方 setPinned；拿不到官方动作就取消跨区落点，
+          // 不假装改变了固定状态。
+          if (plan.pinChange && (!setPinned || !setPinned(drag.id, destinationPinned))) return;
+          reorderBucket(store, panelsSource.getSnapshot(), plan.bucket, drag.id, officialTarget.index);
           return;
         }
         var target = active ? dropTargetAt(x, y, drag.id) : null;
@@ -3743,8 +3869,10 @@ window.__ModuleLoader__.load({
         var button = target.closest('[data-fold-minimal="panel"][data-panel-id]') ||
           target.closest('[data-dfm-rail-menu-id]');
         if (!button) return;
+        var isMenuRow = typeof button.hasAttribute === 'function' && button.hasAttribute('data-dfm-rail-menu-id');
         var rail = button.closest('[data-fold-minimal="rail"]');
-        if (!rail) return;
+        // 新版「更多」浮层 portal 到 body，菜单行不在 rail 内；仍要能作为拖动起点。
+        if (!rail && !isMenuRow) return;
         var id = button.getAttribute('data-panel-id') || button.getAttribute('data-dfm-rail-menu-id');
         if (!id) return;
         session = {
@@ -3823,10 +3951,26 @@ window.__ModuleLoader__.load({
       var split = officialPins
         ? splitOfficialPanels(effectivePanels, pinnedIds, PANEL_SLOTS)
         : splitPanels(effectivePanels, hiddenIds);
-      // 旧版拖动时全部平铺，收起项保留在独立隐藏区；新版不维护第二套隐藏区。
-      var flattenRail = !officialPins && enabled && layoutState.dragActive === true;
+      // 拖动时整条工具栏展开：旧版是「显示 / 隐藏」两区，新版是「固定 / 未固定」两区。
+      var flattenRail = enabled && layoutState.dragActive === true;
+      var pinSet = null;
+      var flatPinned = [];
+      var flatUnpinned = [];
+      if (flattenRail && officialPins) {
+        if (Array.isArray(pinnedIds)) {
+          pinSet = Object.create(null);
+          for (var pinIndex = 0; pinIndex < pinnedIds.length; pinIndex += 1) pinSet[pinnedIds[pinIndex]] = true;
+        }
+        for (var flatIndex = 0; flatIndex < effectivePanels.length; flatIndex += 1) {
+          var flatPanel = effectivePanels[flatIndex];
+          if (pinSet === null || pinSet[flatPanel.id]) flatPinned.push(flatPanel);
+          else flatUnpinned.push(flatPanel);
+        }
+      }
       var visiblePanels = flattenRail
-        ? effectivePanels.filter(function (panel) { return hiddenIds.indexOf(panel.id) === -1; })
+        ? officialPins
+          ? flatPinned
+          : effectivePanels.filter(function (panel) { return hiddenIds.indexOf(panel.id) === -1; })
         : split.visible;
       var needsMore = !flattenRail && (officialPins
         ? split.more.length > 0
@@ -3861,16 +4005,29 @@ window.__ModuleLoader__.load({
       if (effectivePanels.length > 0) {
         children.push(h(Divider, { key: 'rail:divider-panels' }));
         if (flattenRail) {
-          children.push(h('div', {
-            key: 'rail:visible-zone', className: 'DFM_railZone',
-            'data-dfm-rail-zone': 'visible', role: 'group', 'aria-label': t('rail.restore'),
-          }, visiblePanels.length ? visiblePanels.map(panelButton) :
-            h('span', { className: 'DFM_railHint' }, t('rail.restore'))));
-          children.push(h(Divider, { key: 'rail:divider-hidden' }));
-          children.push(h('div', {
-            key: 'rail:hidden-zone', className: 'DFM_railZone DFM_railHidden',
-            'data-dfm-rail-zone': 'hidden', role: 'group', 'aria-label': t('rail.hide'),
-          }, h('span', { className: 'DFM_railHint' }, t('rail.hide')), split.hidden.map(panelButton)));
+          if (officialPins) {
+            children.push(h('div', {
+              key: 'rail:pinned-zone', className: 'DFM_railZone',
+              'data-dfm-rail-zone': 'pinned', role: 'group', 'aria-label': t('rail.pinned'),
+            }, flatPinned.length ? flatPinned.map(panelButton) :
+              h('span', { className: 'DFM_railHint' }, t('rail.pinHint'))));
+            children.push(h(Divider, { key: 'rail:divider-unpinned' }));
+            children.push(h('div', {
+              key: 'rail:unpinned-zone', className: 'DFM_railZone DFM_railHidden',
+              'data-dfm-rail-zone': 'unpinned', role: 'group', 'aria-label': t('rail.unpinned'),
+            }, h('span', { className: 'DFM_railHint' }, t('rail.unpinHint')), flatUnpinned.map(panelButton)));
+          } else {
+            children.push(h('div', {
+              key: 'rail:visible-zone', className: 'DFM_railZone',
+              'data-dfm-rail-zone': 'visible', role: 'group', 'aria-label': t('rail.restore'),
+            }, visiblePanels.length ? visiblePanels.map(panelButton) :
+              h('span', { className: 'DFM_railHint' }, t('rail.restore'))));
+            children.push(h(Divider, { key: 'rail:divider-hidden' }));
+            children.push(h('div', {
+              key: 'rail:hidden-zone', className: 'DFM_railZone DFM_railHidden',
+              'data-dfm-rail-zone': 'hidden', role: 'group', 'aria-label': t('rail.hide'),
+            }, h('span', { className: 'DFM_railHint' }, t('rail.hide')), split.hidden.map(panelButton)));
+          }
         } else {
           for (var index = 0; index < visiblePanels.length; index += 1) children.push(panelButton(visiblePanels[index]));
         }
@@ -3884,15 +4041,6 @@ window.__ModuleLoader__.load({
               dragActive: flattenRail,
               t: t,
               usePanelInfo: usePanelInfo,
-              onReorder: officialPins && enabled
-                ? function (id, index) {
-                    var bucket = [];
-                    for (var moreIndex = 0; moreIndex < morePanels.length; moreIndex += 1) {
-                      bucket.push(morePanels[moreIndex].id);
-                    }
-                    if (props.layoutStore) reorderBucket(props.layoutStore, panels, bucket, id, index);
-                  }
-                : undefined,
               onSelect: function (panel) {
                 openPanel(panel, props.selectPanel, props.trackEntryClick);
               },
@@ -4017,9 +4165,23 @@ window.__ModuleLoader__.load({
           return installPanelDrag(layout, panels.source, caps.officialPins);
         });
       }, 'fold-minimal: expanded panel drag');
+      var setOfficialPinned = function (id, pinned) {
+        var action = resolveOfficialSetPinned(ctx);
+        if (!action) return false;
+        try {
+          action(id, pinned);
+          return true;
+        } catch (error) {
+          return false;
+        }
+      };
       ctx.effect(function () {
         return watchLayoutFlag(layout, 'enabled', function () {
-          return installRailDrag(layout, panels.source, caps.officialPins);
+          return installRailDrag(layout, panels.source, {
+            officialPins: caps.officialPins,
+            pins: pins,
+            setPinned: setOfficialPinned,
+          });
         });
       }, 'fold-minimal: rail panel drag');
 
@@ -4088,7 +4250,6 @@ window.__ModuleLoader__.load({
                     trackEntryClick: actions.trackEntryClick,
                     officialPins: caps.officialPins,
                     releaseVersion: caps.releaseVersion,
-                    layoutStore: layout,
                     hooks: {
                       shortcuts: ctx.shortcuts.catalog,
                       panels: panels.source,
@@ -4236,6 +4397,7 @@ window.__ModuleLoader__.load({
         createShadowPanel: createShadowPanel,
         createShadowManager: createShadowManager,
         createPinsStore: createPinsStore,
+        officialDropPlan: officialDropPlan,
         readLayoutPrefs: readLayoutPrefs,
         placePanel: placePanel,
         reorderBucket: reorderBucket,
@@ -4255,6 +4417,8 @@ window.__ModuleLoader__.load({
         installPanelDrag: installPanelDrag,
         installRailDrag: installRailDrag,
         installMenuReorder: installMenuReorder,
+        menuRowForTarget: menuRowForTarget,
+        resolveOfficialSetPinned: resolveOfficialSetPinned,
         installSidebarMoreHover: installSidebarMoreHover,
         isPanelActive: isPanelActive,
       },

@@ -52,7 +52,7 @@
 - 不替换 `sidebar` 单槽：那个座位会连同它声明的 `sidebar.workspaces` /
   `sidebar.settings` 等子槽一起被取代，代价与升级风险都不可接受。
 
-## v0.4 / v0.5：面板排序与折叠（可选部件）
+## v0.4–v0.6：面板排序与折叠（可选部件）
 
 ### 三个组件开关
 
@@ -65,8 +65,8 @@
 - **返回会话按钮**（`backEnabled`，默认开）：折叠工具栏与展开侧栏顶部的两处
   「返回会话」入口。关闭后两处一起隐藏；展开态按钮不再跟随「折叠菜单」开关。
 - **面板挪位与折叠 / 面板挪位**（`enabled`，默认关）：影子排序、拖拽换位；
-  新版只负责排序，旧版还包括「更多」chevron/二级区与收起项。关闭时撤销全部
-  影子并移除这些 chrome。
+  新版跨固定边界时调用官方固定/取消固定，旧版还包括「更多」chevron/二级区与
+  收起项。关闭时撤销全部影子并移除这些 chrome。
 
 三个组件相互独立：只开「面板挪位与折叠」时，展开侧栏的排序/收起仍可用，
 折叠工具栏相关增强则不出现；只开「返回会话按钮」时，展开态返回按钮仍会出现。
@@ -179,23 +179,21 @@
   - 排序关闭时，按 nav 行的 `aria-label` 与面板顺序做顺序匹配（`pinnedIdsFromLabels`）。
 - 官方「更多」菜单渲染时，它的 owner props `entries` 带权威 `pinned` 布尔值；
   `MoreMenuObserver` 在每个浮层打开时回写 `createPinsStore`，修正 DOM 推断。
-- 折叠工具栏「更多」浮层内的拖动回调通过注入的 `layoutStore` 提交顺序；不要
-  在组件闭包里直接引用 `apply` 作用域的 store，否则打包/压缩后容易变成未定义变量。
 - `splitOfficialPanels` 只平铺固定项；固定项超过 4 个时保留前 3 个，固定项溢出
   与未固定项按全局顺序进入「更多」。`pinned === null`（尚未观测）时先按全部固定
   处理，避免启动瞬间隐藏入口。
 
 ### 排序换位
 
-- 新版不修改插件 `hidden` 状态：`installPanelDrag` 只在固定行之间换位，
-  `installRailDrag` 只在折叠工具栏的固定图标之间换位，官方「更多」里的行由
-  `MoreMenuObserver` 安装 `installMenuReorder`。
-- 三者最终都调用 `reorderBucket`：只替换目标分组在完整 order 中的位置，组外项
-  （例如未固定项）保持原位。影子注册随后把同一 order 同步到展开侧栏、折叠工具栏
-  与「更多」。
-- `installMenuReorder` 是宿主浮层与插件浮层共用的控制器：按 `data-dfm-id` /
-  `data-dfm-rail-menu-id` 找行，拖动时只画固定定位的插入线，松手才提交；拖拽中
-  不移动 DOM，避免浮层跳动。
+- 新版不修改插件 `hidden` 状态：`installPanelDrag` 只在固定行之间换位；
+  折叠工具栏与「更多」走 `installRailDrag`，拖过固定边界时调用官方
+  `setPinned`；官方「更多」里的行由 `MoreMenuObserver` 安装
+  `installMenuReorder` 做区内换位。
+- `reorderBucket` 只替换目标分组在完整 order 中的位置，组外项保持原位；影子
+  注册随后把同一 order 同步到展开侧栏、折叠工具栏与「更多」。
+- `installMenuReorder` 现在只服务官方「更多」：它用
+  `menuRowForTarget` 找“包含面板标记的整行按钮”，所以标题、空白都能拖，行内
+  图钉按钮不会误触发。拖动时只画固定定位的插入线，松手才提交。
 
 ### 悬停浮层
 
@@ -215,6 +213,32 @@
 `hostPanelRow` 要求按钮是 `nav` 的直接子元素，因此排序/隐藏/固定观测全部失效。
 现在向上找到 nav 的直接子元素做行判定，返回按钮作为拖拽行，另用
 `hostPanelRowItem` 定位整行容器做隐藏。
+
+## v0.6：折叠工具栏的平铺 drag + ghost
+
+v0.6 把折叠「更多」的换位改回 0.4 的手感，但语义对齐官方固定状态：
+
+1. 在折叠「更多」里按住任意一行，移动超过约 4px；
+2. 关闭竖向菜单，`layout.dragActive` 让折叠工具栏整体展开；
+3. `createDragGhost` 克隆该行图标，跟随鼠标；
+4. 工具栏渲染两个区：
+   - `data-dfm-rail-zone="pinned"`：当前固定面板；
+   - `data-dfm-rail-zone="unpinned"`：官方未固定面板；
+5. 蓝色插入线只出现在指针所在的区，松手提交；
+6. 指针在哪个区松手，就调用官方 `setPinned(id, 该区是否固定)`；随后
+   `officialDropPlan` 计算目标 bucket，`reorderBucket` 写回顺序；
+7. 如果拿不到官方 `setPinned`，跨区落点取消，不假装改变固定状态。
+
+官方 `setPinned` 的取得方式：`resolveOfficialSetPinned(ctx)` 从
+`ctx.slots.entries('shell.leading')` 里找官方注册项，调用它的
+`options.inject()`，识别同时带 `setPinned` 与 `hooks.entryPins` 的返回值。
+不模拟点击，也不复制官方 pin store。
+
+旧版 DSH 仍然渲染 `visible` / `hidden` 两区，跨区调用 `placePanel` 修改插件
+自己的收起状态。两种模式共用同一个 `installRailDrag`，只是落区与提交函数不同。
+
+整行拖动、ghost、插入线和清理都在 `installRailDrag` / `installMenuReorder` /
+`createDragGhost` 内完成；拖动期间不移动宿主 DOM，避免菜单跳动。
 
 ## 安装
 
@@ -397,7 +421,8 @@ pnpm test
 - 回归用例覆盖影子图标的隐藏范围、原生 More 分组与二级区互斥、悬停浮层的
   生命周期、跨组放置的原子提交、菜单收起项拖出后的临时平铺与取消拖动。
 - 0.4.3 新增相同布局零持久化、存储属性访问受限、特殊 id、影子读取失败与重注册、延迟折叠取消、每帧合并测量、组件开关完整清理和图标选中快照测试。
-- 0.5.0 新增 semver/prerelease 比较、boot/官方注册者探测、官方固定项切分、分组换位、固定状态 store、悬停几何走廊、0.2.2 行容器识别与 aria-label 固定项反推，共 52 项。
+- 0.5.0 新增 semver/prerelease 比较、boot/官方注册者探测、官方固定项切分、分组换位、固定状态 store、悬停几何走廊、0.2.2 行容器识别与 aria-label 固定项反推。
+- 0.6.0 新增官方「更多」整行命中、`resolveOfficialSetPinned`、跨固定边界 `officialDropPlan` 与平铺两区渲染测试，共 55 项。
 - 本轮额外用本机 DSH 打包的 React、Menu、PanelMoreMenu 和 PanelRow 组件搭建
   浏览器夹具，验证展开二级区、悬停菜单、拖进/拖出、溢出项移到首位、全收起后
   恢复首项、无效落点与 Esc 取消；完整宿主窗口仍需在安装后确认。
@@ -407,6 +432,7 @@ Node 22 / 24 运行同一套 `node --test`；测试无第三方依赖，不需�
 
 ## 更新记录
 
+- **0.6.0**：折叠「更多」改回平铺 + ghost：拖动时菜单关闭、工具栏展开为「固定 / 未固定」两区，跨边界调用官方 `setPinned`；官方「更多」与折叠「更多」整行可拖；修复拖动时光标压在竖向菜单上的问题。
 - **0.5.0**：自动识别 DSH 0.2.2+ 官方固定菜单：新版折叠工具栏只显示固定项、未固定项进官方「更多」，删除第二套隐藏状态；旧版保持原收起。新增独立「返回会话按钮」开关；修复折叠工具栏「更多」浮层被主面板遮挡导致一移开就消失（portal + 悬停走廊）；修复 0.2.2 `PanelRow` 多一层容器后排序失效、展开/折叠/更多不同步；官方「更多」与折叠「更多」浮层内支持拖动换位。
 - **0.4.3**：拖拽测量按帧合并，相同状态不重复通知或写存储；开关生命周期集中管理，排序关闭时不安装控制器；影子图标只订阅自己的隐藏状态。修复停用 / 失焦后的延迟折叠、存储访问受限、账本读取失败及特殊 id 兼容；移除失效预览、未使用图标与重复包装账本，详见 [排查记录](CODE_REVIEW.md)。
 - **0.4.2**：修复收起项复用图标被误隐藏、二级区与原生 More 浮层互斥、菜单项拖出
