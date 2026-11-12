@@ -1,4 +1,14 @@
 /**
+ * dsh-fold-minimal — browser half.
+ *
+ * GENERATED FILE — edit src/*.js and run `npm run build`.
+ * The shipped artifact is still one zero-dependency client.js.
+ */
+window.__ModuleLoader__.load({
+  id: 'dsh-fold-minimal',
+  factory: function (require) {
+    /* ── src/00-runtime.js — React/ReactDOM and factory runtime ── */
+/**
  * dsh-fold-minimal —— 浏览器半。
  *
  * 侧栏折叠（macOS 桌面）后，窗口左上角原本只剩「展开 / 新建会话」两个按钮。
@@ -25,10 +35,6 @@
  *
  * @module dsh-fold-minimal/client
  */
-
-window.__ModuleLoader__.load({
-  id: 'dsh-fold-minimal',
-  factory: function (require) {
     var React = require('react');
     var h = React.createElement;
     /**
@@ -43,6 +49,7 @@ window.__ModuleLoader__.load({
       ReactDOM = null;
     }
 
+    /* ── src/01-constants.js — Constants, attribute names, timing, cursors ── */
     /** 本插件在 locale 服务里的命名空间。 */
     var NS = 'fold-minimal';
     /** 折叠态窗口左上角的 chrome 座位（单槽，只在 macOS 侧栏折叠时挂载）。 */
@@ -144,6 +151,7 @@ window.__ModuleLoader__.load({
     var ARMED_CURSOR_LIGHT = collapseCursor('#111111', '#ffffff');
     var ARMED_CURSOR_DARK = collapseCursor('#ffffff', '#111111');
 
+    /* ── src/02-locales.js — Chinese and English UI copy ── */
     var zh = {
       'rail.label': '折叠态工具栏',
       'rail.hide': '拖到这里隐藏',
@@ -202,6 +210,7 @@ window.__ModuleLoader__.load({
       'tray.collapse': 'Hide the hidden-panel list',
     };
 
+    /* ── src/03-styles.js — CSS tokens and style injection ── */
     /* ───────────────────────────── 样式 ───────────────────────────── */
 
     var CSS_TAG = 'dsh-fold-minimal/FoldMinimal.css';
@@ -360,6 +369,7 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /* ── src/04-panels.js — Panel snapshot, order merge, splitting, grouping ── */
     /* ─────────────────────────── 面板数据源 ─────────────────────────── */
 
     /**
@@ -573,6 +583,7 @@ window.__ModuleLoader__.load({
       return result;
     }
 
+    /* ── src/05-storage.js — Cookie/localStorage layout store and component flags ── */
     /**
      * 把任意读到的值收成合法的排序/隐藏状态。
      * @param value - 来自 cookie / localStorage 的 JSON。
@@ -822,18 +833,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 拖拽过冲量：松手时的渲染列宽减去「指针期望的列宽」。
-     * 差值越大，说明指针已经越过宿主的最小宽度越多；宿主的最小宽度不需要写死。
-     * @param width - 松手那一帧渲染出的侧栏列宽。
-     * @param startWidth - 拖拽起点列宽。
-     * @param startX - 按下时的指针 x。
-     * @param endX - 松手时的指针 x。
-     * @returns 过冲像素；往右拖为负。
-     */
-    function dragOvershoot(width, startWidth, startX, endX) {
-      return width - (startWidth + (endX - startX));
-    }
 
+    /* ── src/06-version.js — DSH release/capability detection and official setPinned resolution ── */
     /* ─────────────── 版本检测：官方固定菜单 / 「更多」兼容模式 ─────────────── */
 
     /**
@@ -1137,6 +1138,8 @@ window.__ModuleLoader__.load({
      * 观测到之后，`pinned` 是当前固定的 id 数组。
      * @returns `{ observable, getPinned, setPinned, setFromEntries }`。
      */
+
+    /* ── src/07-pins.js — Official pinned-state store ── */
     function createPinsStore() {
       var snapshot = { pinned: null };
       var listeners = [];
@@ -1218,30 +1221,157 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /* ── src/08-dom.js — Host row/nav helpers and pinned-state observer ── */
     /**
-     * 指针是否在「按钮 → 浮层」的悬停走廊里。
-     * 浮层 portal 到 body 后不再与按钮共享祖先，靠几何把两者连起来，
-     * 防止鼠标穿过 6px 间隙时浮层被延迟关闭。
-     * @param x - 指针 x。
-     * @param y - 指针 y。
-     * @param button - 按钮 rect。
-     * @param menu - 浮层 rect。
-     * @returns 是否仍在走廊内。
+     * 从事件目标向上找最近的带某个属性的元素（含自身）。
+     * @param node - 事件目标。
+     * @param attribute - 属性名。
+     * @returns 命中的元素，或 null。
      */
-    function hoverBridgeContains(x, y, button, menu) {
-      if (!button || !menu) return false;
-      var pad = 6;
-      var inside = function (rect) {
-        return x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad;
-      };
-      if (inside(button) || inside(menu)) return true;
-      var left = Math.min(button.left, menu.left);
-      var right = Math.max(button.right, menu.right);
-      var top = Math.min(button.bottom, menu.top);
-      var bottom = Math.max(button.bottom, menu.top);
-      return x >= left - pad && x <= right + pad && y >= top - pad && y <= bottom + pad;
+    function closestMarked(node, attribute) {
+      return node && typeof node.closest === 'function' ? node.closest('[' + attribute + ']') : null;
     }
 
+    /** 只匹配宿主 nav 内的面板按钮，排除复用影子图标的所有自绘入口。 */
+    function hostPanelRow(marker) {
+      var row = marker && marker.closest ? marker.closest('button') : null;
+      var nav = row && row.closest ? row.closest('nav') : null;
+      if (!row || !nav) return null;
+      // 0.2.2 起 PanelRow 多了一层行容器（承载 pin 按钮），按钮不再是 nav 的
+      // 直接子元素；向上找到 nav 的直接子元素来确认这是主列表行。
+      var item = row;
+      while (item.parentElement && item.parentElement !== nav) item = item.parentElement;
+      return item.parentElement === nav ? row : null;
+    }
+
+    /** 宿主 nav 里的整行容器（可能是按钮，也可能是包住按钮的 `.panelEntry`）。 */
+    function hostPanelRowItem(marker) {
+      var row = hostPanelRow(marker);
+      if (!row) return null;
+      var nav = row.closest('nav');
+      var item = row;
+      while (item.parentElement && item.parentElement !== nav) item = item.parentElement;
+      return item.parentElement === nav ? item : null;
+    }
+
+    /** 侧栏根节点：`[data-sidebar-toggle]` 所在的标题条父级。 */
+    function sidebarRootElement() {
+      if (typeof document === 'undefined') return null;
+      var toggle = document.querySelector('[data-sidebar-toggle]');
+      var strip = toggle && toggle.closest ? toggle.closest('[data-window-drag]') : null;
+      return strip ? strip.parentElement : null;
+    }
+
+    /** 侧栏根节点里的面板 nav（优先直接子元素，其次在子树内查找）。 */
+    function sidebarNavElement(root) {
+      var scope = root || sidebarRootElement();
+      if (!scope) return null;
+      for (var index = 0; index < scope.children.length; index += 1) {
+        if (scope.children[index].tagName === 'NAV') return scope.children[index];
+      }
+      // 0.2.2 起面板 nav 位于 scrollRegion/scrollArea 内部，不再是根节点的直接子元素。
+      return typeof scope.querySelector === 'function' ? scope.querySelector('nav') : null;
+    }
+
+    /**
+     * 没有影子标记时，用宿主行按钮的 aria-label 反推固定项。
+     *
+     * 拖拽排序关闭时不会注册影子，但 nav 里仍然只渲染固定项；按面板顺序
+     * 与行顺序做一次顺序匹配，能覆盖官方固定/取消固定后的集合变化。
+     * @param nav - 宿主面板 nav。
+     * @param panels - 当前面板快照（按顺序）。
+     * @returns 固定 id 数组；无法可靠匹配时返回 null。
+     */
+    function pinnedIdsFromLabels(nav, panels) {
+      if (!nav || !Array.isArray(panels)) return null;
+      var rows = [];
+      for (var index = 0; index < nav.children.length; index += 1) {
+        var item = nav.children[index];
+        var button = null;
+        if (item.tagName === 'BUTTON') button = item;
+        else if (typeof item.querySelector === 'function') button = item.querySelector('button[aria-label]');
+        if (!button) continue;
+        if (button.getAttribute('aria-haspopup') === 'menu') continue;
+        var label = button.getAttribute('aria-label');
+        if (typeof label !== 'string' || label.length === 0) continue;
+        rows.push(label);
+      }
+      if (rows.length === 0) return null;
+      var pinned = [];
+      var cursor = 0;
+      for (var panelIndex = 0; panelIndex < panels.length && cursor < rows.length; panelIndex += 1) {
+        if (panels[panelIndex].label === rows[cursor]) {
+          pinned.push(panels[panelIndex].id);
+          cursor += 1;
+        }
+      }
+      // 只有把当前渲染的固定行全部对上才采用；否则保持上一次状态。
+      return cursor === rows.length ? pinned : null;
+    }
+
+    /**
+     * 观测宿主 nav 的固定集合，与组件生命周期解耦。
+     *
+     * `SidebarChrome` 是无渲染组件，但在某些布局下可能晚挂载/重挂载；固定状态用
+     * 独立的 plugin effect 观察更可靠。优先用 nav 行 aria-label 与面板顺序匹配，
+     * 匹配不上再退回影子标记，避免一次错误的标记集合覆盖正确结果。
+     * @param pinStore - 固定状态 store。
+     * @param panelsSource - 面板 observable source。
+     * @returns 清理函数。
+     */
+    function installPinnedObserver(pinStore, panelsSource) {
+      if (typeof document === 'undefined') return undefined;
+      var root = null;
+      var observer = null;
+      var frame = null;
+      var scheduled = false;
+      var read = function () {
+        scheduled = false;
+        var nav = sidebarNavElement(root);
+        if (!nav) return;
+        var panels = panelsSource.getSnapshot();
+        var fromLabels = pinnedIdsFromLabels(nav, panels);
+        if (fromLabels) {
+          pinStore.setPinned(fromLabels);
+          return;
+        }
+        // 排序开启时影子包装会给出更精确的固定行；标签匹配失败时兜底。
+        var markers = nav.querySelectorAll('[' + MARKER_ATTR + ']');
+        var seen = [];
+        for (var index = 0; index < markers.length; index += 1) {
+          var id = markers[index].getAttribute(MARKER_ATTR);
+          if (id && seen.indexOf(id) === -1 && hostPanelRow(markers[index])) seen.push(id);
+        }
+        if (seen.length > 0) pinStore.setFromDom(panels, seen);
+      };
+      var schedule = function () {
+        if (scheduled) return;
+        scheduled = true;
+        if (typeof requestAnimationFrame === 'function') {
+          frame = requestAnimationFrame(read);
+        } else {
+          frame = setTimeout(read, 0);
+        }
+      };
+      var attach = function () {
+        if (typeof MutationObserver !== 'function') return;
+        if (observer) observer.disconnect();
+        root = sidebarRootElement();
+        observer = new MutationObserver(schedule);
+        observer.observe(root || document.documentElement, { childList: true, subtree: true });
+      };
+      attach();
+      schedule();
+      return function () {
+        if (observer) observer.disconnect();
+        if (frame !== null) {
+          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+          else clearTimeout(frame);
+        }
+      };
+    }
+
+    /* ── src/09-data.js — Panel observable source and React subscription helper ── */
     /**
      * 可被 slot 渲染器绑成 `usePanels` 的 observable source。
      * @param ctx - 客户端根上下文。
@@ -1298,6 +1428,7 @@ window.__ModuleLoader__.load({
       return read();
     }
 
+    /* ── src/10-shadow.js — Shadow registration for ordering and row markers ── */
     /**
      * 生成一个面板的「影子组件」。
      *
@@ -1508,6 +1639,7 @@ window.__ModuleLoader__.load({
       return { sync: sync, dispose: disposeAll };
     }
 
+    /* ── src/11-icons.js — Icons and icon error boundary ── */
     /* ───────────────────────────── 图标 ───────────────────────────── */
 
     /** 侧栏开合图标（与 chrome 原按钮同一套路径）。 */
@@ -1643,6 +1775,7 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /* ── src/12-widgets.js — Buttons, panel menu rows, collapsed More popover ── */
     /* ──────────────────────────── 小部件 ──────────────────────────── */
 
     /** 淡分割线。 */
@@ -2077,22 +2210,382 @@ window.__ModuleLoader__.load({
       };
     }
 
-    /* ───────────────── v0.4：开关 / 二级区 / 展开态返回键 ───────────────── */
+    /* ── src/13-menus.js — Official More observer and hover geometry ── */
+    /**
+     * 指针是否在「按钮 → 浮层」的悬停走廊里。
+     * 浮层 portal 到 body 后不再与按钮共享祖先，靠几何把两者连起来，
+     * 防止鼠标穿过 6px 间隙时浮层被延迟关闭。
+     * @param x - 指针 x。
+     * @param y - 指针 y。
+     * @param button - 按钮 rect。
+     * @param menu - 浮层 rect。
+     * @returns 是否仍在走廊内。
+     */
+    function hoverBridgeContains(x, y, button, menu) {
+      if (!button || !menu) return false;
+      var pad = 6;
+      var inside = function (rect) {
+        return x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad;
+      };
+      if (inside(button) || inside(menu)) return true;
+      var left = Math.min(button.left, menu.left);
+      var right = Math.max(button.right, menu.right);
+      var top = Math.min(button.bottom, menu.top);
+      var bottom = Math.max(button.bottom, menu.top);
+      return x >= left - pad && x <= right + pad && y >= top - pad && y <= bottom + pad;
+    }
 
-    /** 侧栏顶部返回按钮的内联 SVG（与折叠态返回同一套路径）。 */
-    var TOP_BACK_SVG =
-      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" ' +
-      'aria-hidden="true"><path d="M12.5 8H3.5" stroke="currentColor"/><path d="M7.25 4.25 3.5 8l3.75 3.75" ' +
-      'stroke="currentColor"/></svg>';
-    /** 「更多」行右侧 chevron 的内联 SVG。 */
-    var MORE_CHEVRON_SVG =
-      '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" ' +
-      'aria-hidden="true"><path d="M6.25 3.75 10.5 8l-4.25 4.25" stroke="currentColor"/></svg>';
+    function SidebarMoreItems(props) {
+      var layout = props.useLayout(function (snapshot) { return snapshot; });
+      var panels = props.usePanels(function (snapshot) { return snapshot; });
+      var hidden = splitPanels(panelsInOrder(panels, layout.order), layout.hidden).hidden;
+      var rows = [];
+      if (layout.enabled && !layout.trayOpen && !layout.dragActive) {
+        rows = hidden.map(function (panel) {
+          return h(PanelMenuItem, {
+            key: panel.id,
+            panel: panel,
+            trayItem: true,
+            usePanelInfo: props.usePanelInfo,
+            onSelect: function (selected) {
+              if (props.onDismiss) props.onDismiss();
+              openPanel(selected, props.selectPanel, props.trackEntryClick);
+            },
+          });
+        });
+        if (rows.length) rows.push(h('div', { key: 'divider', className: 'DFM_menuDivider', role: 'separator' }));
+      }
+      return h('div', { 'data-dfm-sidebar-menu': '', style: { display: 'contents' } }, rows);
+    }
 
     /**
-     * 偏好开关：照宿主 primitive 的 `role="switch"` 行为实现。
-     * @param props - checked / label / onChange。
+     * 新版官方「更多」菜单里的无渲染探针。
+     *
+     * 1. 官方 entries 是固定状态的权威来源，菜单每次渲染都把它回写到 pin store，
+     *    折叠工具栏据此只显示固定项。
+     * 2. 菜单里的未固定行可以原地拖动换位，提交到与展开/折叠菜单相同的 order；
+     *    行由官方渲染，这里只用 `data-dfm-id` 锚点做事件委托。
+     * @param props - entries / pinStore / panelsSource / layoutStore / t。
      */
+    function MoreMenuObserver(props) {
+      var markerRef = React.useRef(null);
+      var entriesRef = React.useRef(props.entries);
+      entriesRef.current = props.entries;
+      var tRef = React.useRef(props.t);
+      tRef.current = props.t;
+      var enabled = props.useLayout(function (snapshot) {
+        return snapshot.enabled === true;
+      });
+      React.useLayoutEffect(function () {
+        props.pinStore.setFromEntries(props.entries, props.panelsSource.getSnapshot());
+      }, [props.entries]);
+      React.useLayoutEffect(function () {
+        if (!enabled) return undefined;
+        var marker = markerRef.current;
+        if (!marker || typeof document === 'undefined') return undefined;
+        var menu = marker.closest ? marker.closest('[role="menu"]') : null;
+        if (!menu) return undefined;
+        return installMenuReorder(menu, MARKER_ATTR, function (id, index) {
+          if (!props.layoutStore.getSnapshot().enabled) return;
+          var entries = entriesRef.current || [];
+          var bucket = [];
+          for (var entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+            if (entries[entryIndex] && entries[entryIndex].pinned === false) bucket.push(entries[entryIndex].id);
+          }
+          reorderBucket(props.layoutStore, props.panelsSource.getSnapshot(), bucket, id, index);
+        }, tRef);
+      }, [enabled]);
+      return h('span', {
+        ref: markerRef,
+        'data-dfm-more-observer': '',
+        style: { display: 'contents' },
+      });
+    }
+
+    /**
+     * 展开侧栏「更多」下方的缩进二级区：列出被收起的面板。
+     * 点行打开面板；拖出/入由 installPanelDrag 的事件委托处理。
+     * @param props - panels / activePanelId / t / onOpen / onReset。
+     */
+
+    /** 用宿主按钮打开/关闭原生浮层；二级区展开或拖动时禁止浮层抢占操作。 */
+    function installSidebarMoreHover(button, anchor, store) {
+      if (!button || !store) return function () {};
+      var timer = null;
+      var toggling = false;
+      var menu = null;
+      function cancel() {
+        if (timer !== null) clearTimeout(timer);
+        timer = null;
+      }
+      function blocked() {
+        var state = store.getSnapshot();
+        return !state.enabled || state.trayOpen || state.dragActive;
+      }
+      function toggle() {
+        toggling = true;
+        try { button.click(); } finally { toggling = false; }
+      }
+      function close() {
+        cancel();
+        if (button.getAttribute('aria-expanded') === 'true') toggle();
+      }
+      function popup() {
+        if (button.getAttribute('aria-expanded') !== 'true') { menu = null; return null; }
+        if (menu && menu.isConnected) return menu;
+        var marker = document.querySelector('[data-dfm-sidebar-menu]');
+        menu = marker && marker.closest('[role="menu"]');
+        return menu;
+      }
+      function owns(node) {
+        var menu = popup();
+        return !!node && (anchor.contains(node) || !!menu && menu.contains(node));
+      }
+      function enter() {
+        cancel();
+        if (blocked()) return;
+        timer = setTimeout(function () {
+          timer = null;
+          if (!blocked() && button.getAttribute('aria-expanded') !== 'true') toggle();
+        }, MENU_OPEN_DELAY);
+      }
+      function leave(event) {
+        if (owns(event.relatedTarget)) return;
+        cancel();
+        timer = setTimeout(close, MENU_CLOSE_DELAY);
+      }
+      function over(event) {
+        var menu = popup();
+        if (menu && menu.contains(event.target)) cancel();
+      }
+      function out(event) {
+        var menu = popup();
+        if (menu && menu.contains(event.target)) leave(event);
+      }
+      function click(event) {
+        if (toggling || !blocked()) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+      var off = store.subscribe(function () { if (blocked()) close(); });
+      anchor.addEventListener('pointerenter', enter);
+      anchor.addEventListener('pointerleave', leave);
+      button.addEventListener('click', click, true);
+      document.addEventListener('pointerover', over);
+      document.addEventListener('pointerout', out);
+      return function () {
+        off();
+        close();
+        anchor.removeEventListener('pointerenter', enter);
+        anchor.removeEventListener('pointerleave', leave);
+        button.removeEventListener('click', click, true);
+        document.removeEventListener('pointerover', over);
+        document.removeEventListener('pointerout', out);
+      };
+    }
+
+    /**
+     * 在浮层里把一次指针命中解析成“包含该面板标记的整行按钮”。
+     *
+     * 官方「更多」把图标渲染在行按钮内部，所以按标题/空白时不能直接 closest
+     * 到标记；这里先找指针所在的按钮，再检查按钮内部是否有面板标记。
+     * 行内的图钉按钮是独立按钮，不包含标记，因此不会误触发整行拖动。
+     * @param target - pointerdown 目标。
+     * @param menu - 浮层根节点。
+     * @param idAttr - 面板 id 属性名。
+     * @returns `{ row, id }` 或 null。
+     */
+    function menuRowForTarget(target, menu, idAttr) {
+      if (!target || typeof target.closest !== 'function' || !menu) return null;
+      var selector = '[' + idAttr + ']';
+      var button = target.closest('button');
+      while (button && menu.contains(button)) {
+        var marker = null;
+        if (typeof button.matches === 'function' && button.matches(selector)) marker = button;
+        else if (typeof button.querySelector === 'function') marker = button.querySelector(selector);
+        if (marker) {
+          var id = marker.getAttribute(idAttr);
+          if (id) return { row: button, id: id };
+        }
+        var parent = button.parentElement;
+        button = parent && typeof parent.closest === 'function' ? parent.closest('button') : null;
+      }
+      return null;
+    }
+
+    /**
+     * 在任意浮层菜单里做纵向换位：浮层由宿主 portal 渲染，行也由宿主渲染，
+     * 这里只按 `idAttr` 找到行、画插入线，松手后把新顺序交给调用方。
+     * 官方的「更多」和折叠工具栏自己的「更多」共用这一个控制器。
+     * @param menu - 浮层根节点。
+     * @param idAttr - 行上的面板 id 属性（`data-dfm-id` / `data-dfm-rail-menu-id`）。
+     * @param onReorder - `(id, index) => void`，index 为移除被拖行后的落点。
+     * @param tRef - 可选文案 ref（当前未使用，保留给无障碍提示扩展）。
+     * @returns 清理函数。
+     */
+    function installMenuReorder(menu, idAttr, onReorder, tRef) {
+      if (!menu || typeof onReorder !== 'function') return function () {};
+      var session = null;
+      var indicator = createInsertionIndicator();
+      var frame = null;
+      var selector = '[' + idAttr + ']';
+
+      function rowsAt() {
+        var markers = menu.querySelectorAll(selector);
+        var result = [];
+        var seen = [];
+        for (var index = 0; index < markers.length; index += 1) {
+          var marker = markers[index];
+          var id = marker.getAttribute(idAttr);
+          if (!id) continue;
+          var row = marker.closest ? marker.closest('button') : null;
+          if (!row || !menu.contains(row) || seen.indexOf(row) !== -1) continue;
+          var rect = row.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) continue;
+          seen.push(row);
+          result.push({ id: id, row: row, rect: rect });
+        }
+        result.sort(function (left, right) {
+          return left.rect.top - right.rect.top;
+        });
+        return result;
+      }
+
+      function targetAt(y, draggedId) {
+        var rows = rowsAt();
+        if (!rows.length) return null;
+        var without = [];
+        for (var index = 0; index < rows.length; index += 1) {
+          if (rows[index].id !== draggedId) without.push(rows[index]);
+        }
+        var target = 0;
+        for (var scan = 0; scan < without.length; scan += 1) {
+          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
+        }
+        var lineY;
+        if (without.length === 0) lineY = rows[0].rect.top + rows[0].rect.height / 2;
+        else if (target === 0) lineY = without[0].rect.top - 2;
+        else if (target === without.length) lineY = without[without.length - 1].rect.bottom + 2;
+        else lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
+        return {
+          index: target,
+          lineY: lineY,
+          left: rows[0].rect.left,
+          width: rows[0].rect.width,
+        };
+      }
+
+      function resetSession() {
+        if (!session) return;
+        document.removeEventListener('pointermove', onPointerMove, true);
+        document.removeEventListener('pointerup', onPointerUp, true);
+        document.removeEventListener('pointercancel', onPointerCancel, true);
+        document.removeEventListener('keydown', onKeyDown, true);
+        if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+        frame = null;
+        if (indicator) indicator.hide();
+        if (typeof document !== 'undefined') document.documentElement.removeAttribute(DRAG_ROOT_ATTR);
+        if (session.row && session.row.classList) session.row.classList.remove('DFM_rowDragging');
+        session = null;
+      }
+
+      function updateDrag(x, y) {
+        if (!session || !session.active) return;
+        var rect = menu.getBoundingClientRect();
+        if (x < rect.left - 12 || x > rect.right + 12 || y < rect.top - 12 || y > rect.bottom + 12) {
+          if (indicator) indicator.hide();
+          return;
+        }
+        var target = targetAt(y, session.id);
+        if (target && indicator) indicator.showVertical(target.left, target.width, target.lineY);
+      }
+
+      function onPointerMove(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        if (!session.active) {
+          var dx = event.clientX - session.startX;
+          var dy = event.clientY - session.startY;
+          if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
+          session.active = true;
+          session.row.classList.add('DFM_rowDragging');
+          document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
+          if (event.cancelable) event.preventDefault();
+        } else if (event.cancelable) {
+          event.preventDefault();
+        }
+        session.x = event.clientX;
+        session.y = event.clientY;
+        if (frame !== null) return;
+        if (typeof requestAnimationFrame === 'function') {
+          frame = requestAnimationFrame(function () {
+            frame = null;
+            if (!session || !session.active) return;
+            updateDrag(session.x, session.y);
+          });
+        } else {
+          updateDrag(session.x, session.y);
+        }
+      }
+
+      function onPointerUp(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        var drag = session;
+        // 浮层是 fixed/portal 的，菜单 rect 与页面坐标偶尔会差一帧；换位只需要
+        // 纵向落点，按行中点计算即可，不再用矩形二次否决。
+        var target = drag.active ? targetAt(event.clientY, drag.id) : null;
+        var active = drag.active;
+        resetSession();
+        if (!active) return;
+        suppressNextClick();
+        if (target) onReorder(drag.id, target.index);
+      }
+
+      function onPointerCancel(event) {
+        if (!session || event.pointerId !== session.pointerId) return;
+        resetSession();
+      }
+
+      function onKeyDown(event) {
+        if (event.key !== 'Escape' || !session) return;
+        event.preventDefault();
+        if (session.active) suppressNextClick();
+        resetSession();
+      }
+
+      function onPointerDown(event) {
+        if (event.button !== 0 || session) return;
+        var hit = menuRowForTarget(event.target, menu, idAttr);
+        if (!hit) return;
+        session = {
+          pointerId: event.pointerId,
+          id: hit.id,
+          row: hit.row,
+          startX: event.clientX,
+          startY: event.clientY,
+          x: event.clientX,
+          y: event.clientY,
+          active: false,
+        };
+        document.addEventListener('pointermove', onPointerMove, true);
+        document.addEventListener('pointerup', onPointerUp, true);
+        document.addEventListener('pointercancel', onPointerCancel, true);
+        document.addEventListener('keydown', onKeyDown, true);
+      }
+
+      var onBlur = function () {
+        if (session) resetSession();
+      };
+      if (typeof window.addEventListener === 'function') window.addEventListener('blur', onBlur);
+      menu.addEventListener('pointerdown', onPointerDown, true);
+      return function () {
+        if (typeof window.removeEventListener === 'function') window.removeEventListener('blur', onBlur);
+        resetSession();
+        if (indicator) indicator.dispose();
+        menu.removeEventListener('pointerdown', onPointerDown, true);
+      };
+    }
+
+    /* ── src/14-settings.js — Plugin detail page switches ── */
     function Switch(props) {
       return h(
         'button',
@@ -2191,78 +2684,25 @@ window.__ModuleLoader__.load({
     }
 
     /** 原生「更多」浮层的前置分组，后面的宿主固定动作仍由宿主渲染。 */
-    function SidebarMoreItems(props) {
-      var layout = props.useLayout(function (snapshot) { return snapshot; });
-      var panels = props.usePanels(function (snapshot) { return snapshot; });
-      var hidden = splitPanels(panelsInOrder(panels, layout.order), layout.hidden).hidden;
-      var rows = [];
-      if (layout.enabled && !layout.trayOpen && !layout.dragActive) {
-        rows = hidden.map(function (panel) {
-          return h(PanelMenuItem, {
-            key: panel.id,
-            panel: panel,
-            trayItem: true,
-            usePanelInfo: props.usePanelInfo,
-            onSelect: function (selected) {
-              if (props.onDismiss) props.onDismiss();
-              openPanel(selected, props.selectPanel, props.trackEntryClick);
-            },
-          });
-        });
-        if (rows.length) rows.push(h('div', { key: 'divider', className: 'DFM_menuDivider', role: 'separator' }));
-      }
-      return h('div', { 'data-dfm-sidebar-menu': '', style: { display: 'contents' } }, rows);
-    }
+
+    /* ── src/15-chrome.js — Expanded back button, legacy tray, SidebarChrome ── */
+    /* ───────────────── v0.4：开关 / 二级区 / 展开态返回键 ───────────────── */
+
+    /** 侧栏顶部返回按钮的内联 SVG（与折叠态返回同一套路径）。 */
+    var TOP_BACK_SVG =
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" ' +
+      'aria-hidden="true"><path d="M12.5 8H3.5" stroke="currentColor"/><path d="M7.25 4.25 3.5 8l3.75 3.75" ' +
+      'stroke="currentColor"/></svg>';
+    /** 「更多」行右侧 chevron 的内联 SVG。 */
+    var MORE_CHEVRON_SVG =
+      '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" ' +
+      'aria-hidden="true"><path d="M6.25 3.75 10.5 8l-4.25 4.25" stroke="currentColor"/></svg>';
 
     /**
-     * 新版官方「更多」菜单里的无渲染探针。
-     *
-     * 1. 官方 entries 是固定状态的权威来源，菜单每次渲染都把它回写到 pin store，
-     *    折叠工具栏据此只显示固定项。
-     * 2. 菜单里的未固定行可以原地拖动换位，提交到与展开/折叠菜单相同的 order；
-     *    行由官方渲染，这里只用 `data-dfm-id` 锚点做事件委托。
-     * @param props - entries / pinStore / panelsSource / layoutStore / t。
+     * 偏好开关：照宿主 primitive 的 `role="switch"` 行为实现。
+     * @param props - checked / label / onChange。
      */
-    function MoreMenuObserver(props) {
-      var markerRef = React.useRef(null);
-      var entriesRef = React.useRef(props.entries);
-      entriesRef.current = props.entries;
-      var tRef = React.useRef(props.t);
-      tRef.current = props.t;
-      var enabled = props.useLayout(function (snapshot) {
-        return snapshot.enabled === true;
-      });
-      React.useLayoutEffect(function () {
-        props.pinStore.setFromEntries(props.entries, props.panelsSource.getSnapshot());
-      }, [props.entries]);
-      React.useLayoutEffect(function () {
-        if (!enabled) return undefined;
-        var marker = markerRef.current;
-        if (!marker || typeof document === 'undefined') return undefined;
-        var menu = marker.closest ? marker.closest('[role="menu"]') : null;
-        if (!menu) return undefined;
-        return installMenuReorder(menu, MARKER_ATTR, function (id, index) {
-          if (!props.layoutStore.getSnapshot().enabled) return;
-          var entries = entriesRef.current || [];
-          var bucket = [];
-          for (var entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
-            if (entries[entryIndex] && entries[entryIndex].pinned === false) bucket.push(entries[entryIndex].id);
-          }
-          reorderBucket(props.layoutStore, props.panelsSource.getSnapshot(), bucket, id, index);
-        }, tRef);
-      }, [enabled]);
-      return h('span', {
-        ref: markerRef,
-        'data-dfm-more-observer': '',
-        style: { display: 'contents' },
-      });
-    }
 
-    /**
-     * 展开侧栏「更多」下方的缩进二级区：列出被收起的面板。
-     * 点行打开面板；拖出/入由 installPanelDrag 的事件委托处理。
-     * @param props - panels / activePanelId / t / onOpen / onReset。
-     */
     function HiddenTray(props) {
       var rows = props.panels.map(function (panel) {
         var active = panel.id === props.activePanelId;
@@ -2576,6 +3016,117 @@ window.__ModuleLoader__.load({
       }, [ref]);
     }
 
+    /* ── src/16-drag-core.js — Drag geometry, ghost, insertion indicator, legacy tray placement ── */
+    /**
+     * 拖拽过冲量：松手时的渲染列宽减去「指针期望的列宽」。
+     * 差值越大，说明指针已经越过宿主的最小宽度越多；宿主的最小宽度不需要写死。
+     * @param width - 松手那一帧渲染出的侧栏列宽。
+     * @param startWidth - 拖拽起点列宽。
+     * @param startX - 按下时的指针 x。
+     * @param endX - 松手时的指针 x。
+     * @returns 过冲像素；往右拖为负。
+     */
+    function dragOvershoot(width, startWidth, startX, endX) {
+      return width - (startWidth + (endX - startX));
+    }
+
+    /** 一次提交分组与落点，避免恢复面板时先闪回旧位置。 */
+    function placePanel(store, panels, id, index, intoTray) {
+      var snapshot = store.getSnapshot();
+      var all = panelIdsOf(panelsInOrder(panels, snapshot.order));
+      if (all.indexOf(id) === -1) return;
+      var hidden = snapshot.hidden.filter(function (panelId) { return panelId !== id; });
+      if (intoTray) hidden.push(id);
+      var bucket = all.filter(function (panelId) { return (hidden.indexOf(panelId) !== -1) === intoTray; });
+      var moved = moveVisibleOrder(bucket, id, index);
+      var order = intoTray ? replaceHiddenOrder(all, hidden, moved) : replaceVisibleOrder(all, hidden, moved);
+      store.setPlacement(order, hidden);
+    }
+
+
+    /** 指针替身在原行/浮层卸载后仍保留，直到松手或取消。 */
+    function createDragGhost(row) {
+      if (!document.body) return null;
+      var ghost = document.createElement('div');
+      ghost.className = 'DFM_dragGhost';
+      ghost.setAttribute('aria-hidden', 'true');
+      var glyph = row.querySelector('svg') || row.firstElementChild;
+      if (glyph) ghost.appendChild(glyph.cloneNode(true));
+      document.body.appendChild(ghost);
+      return {
+        move: function (x, y) {
+          ghost.style.left = x + 12 + 'px';
+          ghost.style.top = y + 12 + 'px';
+        },
+        dispose: function () { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); },
+      };
+    }
+
+    /** 点是否落在 rect 内。 */
+    function rectContains(rect, x, y) {
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        x >= rect.left &&
+        x < rect.right &&
+        y >= rect.top &&
+        y < rect.bottom
+      );
+    }
+
+    /** 吞掉拖拽结束后紧跟的一次 click（避免松手顺便打开面板）。 */
+    function suppressNextClick() {
+      if (typeof document === 'undefined') return;
+      var ownerDocument = document;
+      var handler = function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        ownerDocument.removeEventListener('click', handler, true);
+      };
+      ownerDocument.addEventListener('click', handler, true);
+      setTimeout(function () {
+        ownerDocument.removeEventListener('click', handler, true);
+      }, 0);
+    }
+
+    /**
+     * 原生箭头与蓝线组成的插入提示。固定定位在 body 上，不参与布局，
+     * 所以宿主行与工具栏图标都不会在拖动中跳动。
+     * @returns `{ showVertical, showHorizontal, hide, dispose }`；没有 body 时返回 null。
+     */
+    function createInsertionIndicator() {
+      if (typeof document === 'undefined' || !document.body) return null;
+      var line = document.createElement('div');
+      line.className = 'DFM_indicator';
+      line.setAttribute('aria-hidden', 'true');
+      line.style.display = 'none';
+      document.body.appendChild(line);
+      var show = function (axis, left, top, width, height) {
+        line.setAttribute('data-axis', axis);
+        line.style.left = left + 'px';
+        line.style.top = top + 'px';
+        line.style.width = width + 'px';
+        line.style.height = height + 'px';
+        line.style.display = 'block';
+      };
+      return {
+        showVertical: function (left, width, y) {
+          show('vertical', left, y - 6, width, 12);
+        },
+        showHorizontal: function (x, top, height) {
+          // 以左上角旋转后，原图形 y=6 的蓝线仍精确落在插入点 x 上。
+          show('horizontal', x + 6, top, height, 12);
+        },
+        hide: function () {
+          line.style.display = 'none';
+        },
+        dispose: function () {
+          if (line.parentNode) line.parentNode.removeChild(line);
+        },
+      };
+    }
+
+    /* ── src/17-collapse-drag.js — Drag the sidebar past its minimum width to collapse it ── */
     /* ─────────────────────── 拖到底继续左拖 → 收起 ─────────────────────── */
 
     /**
@@ -2699,529 +3250,7 @@ window.__ModuleLoader__.load({
       };
     }
 
-    /* ───────────── 展开侧栏：拖拽排序 / 拖进二级区收起 ───────────── */
-
-    /**
-     * 从事件目标向上找最近的带某个属性的元素（含自身）。
-     * @param node - 事件目标。
-     * @param attribute - 属性名。
-     * @returns 命中的元素，或 null。
-     */
-    function closestMarked(node, attribute) {
-      return node && typeof node.closest === 'function' ? node.closest('[' + attribute + ']') : null;
-    }
-
-    /** 只匹配宿主 nav 内的面板按钮，排除复用影子图标的所有自绘入口。 */
-    function hostPanelRow(marker) {
-      var row = marker && marker.closest ? marker.closest('button') : null;
-      var nav = row && row.closest ? row.closest('nav') : null;
-      if (!row || !nav) return null;
-      // 0.2.2 起 PanelRow 多了一层行容器（承载 pin 按钮），按钮不再是 nav 的
-      // 直接子元素；向上找到 nav 的直接子元素来确认这是主列表行。
-      var item = row;
-      while (item.parentElement && item.parentElement !== nav) item = item.parentElement;
-      return item.parentElement === nav ? row : null;
-    }
-
-    /** 宿主 nav 里的整行容器（可能是按钮，也可能是包住按钮的 `.panelEntry`）。 */
-    function hostPanelRowItem(marker) {
-      var row = hostPanelRow(marker);
-      if (!row) return null;
-      var nav = row.closest('nav');
-      var item = row;
-      while (item.parentElement && item.parentElement !== nav) item = item.parentElement;
-      return item.parentElement === nav ? item : null;
-    }
-
-    /** 侧栏根节点：`[data-sidebar-toggle]` 所在的标题条父级。 */
-    function sidebarRootElement() {
-      if (typeof document === 'undefined') return null;
-      var toggle = document.querySelector('[data-sidebar-toggle]');
-      var strip = toggle && toggle.closest ? toggle.closest('[data-window-drag]') : null;
-      return strip ? strip.parentElement : null;
-    }
-
-    /** 侧栏根节点里的面板 nav（优先直接子元素，其次在子树内查找）。 */
-    function sidebarNavElement(root) {
-      var scope = root || sidebarRootElement();
-      if (!scope) return null;
-      for (var index = 0; index < scope.children.length; index += 1) {
-        if (scope.children[index].tagName === 'NAV') return scope.children[index];
-      }
-      // 0.2.2 起面板 nav 位于 scrollRegion/scrollArea 内部，不再是根节点的直接子元素。
-      return typeof scope.querySelector === 'function' ? scope.querySelector('nav') : null;
-    }
-
-    /**
-     * 没有影子标记时，用宿主行按钮的 aria-label 反推固定项。
-     *
-     * 拖拽排序关闭时不会注册影子，但 nav 里仍然只渲染固定项；按面板顺序
-     * 与行顺序做一次顺序匹配，能覆盖官方固定/取消固定后的集合变化。
-     * @param nav - 宿主面板 nav。
-     * @param panels - 当前面板快照（按顺序）。
-     * @returns 固定 id 数组；无法可靠匹配时返回 null。
-     */
-    function pinnedIdsFromLabels(nav, panels) {
-      if (!nav || !Array.isArray(panels)) return null;
-      var rows = [];
-      for (var index = 0; index < nav.children.length; index += 1) {
-        var item = nav.children[index];
-        var button = null;
-        if (item.tagName === 'BUTTON') button = item;
-        else if (typeof item.querySelector === 'function') button = item.querySelector('button[aria-label]');
-        if (!button) continue;
-        if (button.getAttribute('aria-haspopup') === 'menu') continue;
-        var label = button.getAttribute('aria-label');
-        if (typeof label !== 'string' || label.length === 0) continue;
-        rows.push(label);
-      }
-      if (rows.length === 0) return null;
-      var pinned = [];
-      var cursor = 0;
-      for (var panelIndex = 0; panelIndex < panels.length && cursor < rows.length; panelIndex += 1) {
-        if (panels[panelIndex].label === rows[cursor]) {
-          pinned.push(panels[panelIndex].id);
-          cursor += 1;
-        }
-      }
-      // 只有把当前渲染的固定行全部对上才采用；否则保持上一次状态。
-      return cursor === rows.length ? pinned : null;
-    }
-
-    /**
-     * 观测宿主 nav 的固定集合，与组件生命周期解耦。
-     *
-     * `SidebarChrome` 是无渲染组件，但在某些布局下可能晚挂载/重挂载；固定状态用
-     * 独立的 plugin effect 观察更可靠。优先用 nav 行 aria-label 与面板顺序匹配，
-     * 匹配不上再退回影子标记，避免一次错误的标记集合覆盖正确结果。
-     * @param pinStore - 固定状态 store。
-     * @param panelsSource - 面板 observable source。
-     * @returns 清理函数。
-     */
-    function installPinnedObserver(pinStore, panelsSource) {
-      if (typeof document === 'undefined') return undefined;
-      var root = null;
-      var observer = null;
-      var frame = null;
-      var scheduled = false;
-      var read = function () {
-        scheduled = false;
-        var nav = sidebarNavElement(root);
-        if (!nav) return;
-        var panels = panelsSource.getSnapshot();
-        var fromLabels = pinnedIdsFromLabels(nav, panels);
-        if (fromLabels) {
-          pinStore.setPinned(fromLabels);
-          return;
-        }
-        // 排序开启时影子包装会给出更精确的固定行；标签匹配失败时兜底。
-        var markers = nav.querySelectorAll('[' + MARKER_ATTR + ']');
-        var seen = [];
-        for (var index = 0; index < markers.length; index += 1) {
-          var id = markers[index].getAttribute(MARKER_ATTR);
-          if (id && seen.indexOf(id) === -1 && hostPanelRow(markers[index])) seen.push(id);
-        }
-        if (seen.length > 0) pinStore.setFromDom(panels, seen);
-      };
-      var schedule = function () {
-        if (scheduled) return;
-        scheduled = true;
-        if (typeof requestAnimationFrame === 'function') {
-          frame = requestAnimationFrame(read);
-        } else {
-          frame = setTimeout(read, 0);
-        }
-      };
-      var attach = function () {
-        if (typeof MutationObserver !== 'function') return;
-        if (observer) observer.disconnect();
-        root = sidebarRootElement();
-        observer = new MutationObserver(schedule);
-        observer.observe(root || document.documentElement, { childList: true, subtree: true });
-      };
-      attach();
-      schedule();
-      return function () {
-        if (observer) observer.disconnect();
-        if (frame !== null) {
-          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
-          else clearTimeout(frame);
-        }
-      };
-    }
-
-    /** 一次提交分组与落点，避免恢复面板时先闪回旧位置。 */
-    function placePanel(store, panels, id, index, intoTray) {
-      var snapshot = store.getSnapshot();
-      var all = panelIdsOf(panelsInOrder(panels, snapshot.order));
-      if (all.indexOf(id) === -1) return;
-      var hidden = snapshot.hidden.filter(function (panelId) { return panelId !== id; });
-      if (intoTray) hidden.push(id);
-      var bucket = all.filter(function (panelId) { return (hidden.indexOf(panelId) !== -1) === intoTray; });
-      var moved = moveVisibleOrder(bucket, id, index);
-      var order = intoTray ? replaceHiddenOrder(all, hidden, moved) : replaceVisibleOrder(all, hidden, moved);
-      store.setPlacement(order, hidden);
-    }
-
-    /** 用宿主按钮打开/关闭原生浮层；二级区展开或拖动时禁止浮层抢占操作。 */
-    function installSidebarMoreHover(button, anchor, store) {
-      if (!button || !store) return function () {};
-      var timer = null;
-      var toggling = false;
-      var menu = null;
-      function cancel() {
-        if (timer !== null) clearTimeout(timer);
-        timer = null;
-      }
-      function blocked() {
-        var state = store.getSnapshot();
-        return !state.enabled || state.trayOpen || state.dragActive;
-      }
-      function toggle() {
-        toggling = true;
-        try { button.click(); } finally { toggling = false; }
-      }
-      function close() {
-        cancel();
-        if (button.getAttribute('aria-expanded') === 'true') toggle();
-      }
-      function popup() {
-        if (button.getAttribute('aria-expanded') !== 'true') { menu = null; return null; }
-        if (menu && menu.isConnected) return menu;
-        var marker = document.querySelector('[data-dfm-sidebar-menu]');
-        menu = marker && marker.closest('[role="menu"]');
-        return menu;
-      }
-      function owns(node) {
-        var menu = popup();
-        return !!node && (anchor.contains(node) || !!menu && menu.contains(node));
-      }
-      function enter() {
-        cancel();
-        if (blocked()) return;
-        timer = setTimeout(function () {
-          timer = null;
-          if (!blocked() && button.getAttribute('aria-expanded') !== 'true') toggle();
-        }, MENU_OPEN_DELAY);
-      }
-      function leave(event) {
-        if (owns(event.relatedTarget)) return;
-        cancel();
-        timer = setTimeout(close, MENU_CLOSE_DELAY);
-      }
-      function over(event) {
-        var menu = popup();
-        if (menu && menu.contains(event.target)) cancel();
-      }
-      function out(event) {
-        var menu = popup();
-        if (menu && menu.contains(event.target)) leave(event);
-      }
-      function click(event) {
-        if (toggling || !blocked()) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }
-      var off = store.subscribe(function () { if (blocked()) close(); });
-      anchor.addEventListener('pointerenter', enter);
-      anchor.addEventListener('pointerleave', leave);
-      button.addEventListener('click', click, true);
-      document.addEventListener('pointerover', over);
-      document.addEventListener('pointerout', out);
-      return function () {
-        off();
-        close();
-        anchor.removeEventListener('pointerenter', enter);
-        anchor.removeEventListener('pointerleave', leave);
-        button.removeEventListener('click', click, true);
-        document.removeEventListener('pointerover', over);
-        document.removeEventListener('pointerout', out);
-      };
-    }
-
-    /** 指针替身在原行/浮层卸载后仍保留，直到松手或取消。 */
-    function createDragGhost(row) {
-      if (!document.body) return null;
-      var ghost = document.createElement('div');
-      ghost.className = 'DFM_dragGhost';
-      ghost.setAttribute('aria-hidden', 'true');
-      var glyph = row.querySelector('svg') || row.firstElementChild;
-      if (glyph) ghost.appendChild(glyph.cloneNode(true));
-      document.body.appendChild(ghost);
-      return {
-        move: function (x, y) {
-          ghost.style.left = x + 12 + 'px';
-          ghost.style.top = y + 12 + 'px';
-        },
-        dispose: function () { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); },
-      };
-    }
-
-    /** 点是否落在 rect 内。 */
-    function rectContains(rect, x, y) {
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        x >= rect.left &&
-        x < rect.right &&
-        y >= rect.top &&
-        y < rect.bottom
-      );
-    }
-
-    /** 吞掉拖拽结束后紧跟的一次 click（避免松手顺便打开面板）。 */
-    function suppressNextClick() {
-      if (typeof document === 'undefined') return;
-      var ownerDocument = document;
-      var handler = function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        ownerDocument.removeEventListener('click', handler, true);
-      };
-      ownerDocument.addEventListener('click', handler, true);
-      setTimeout(function () {
-        ownerDocument.removeEventListener('click', handler, true);
-      }, 0);
-    }
-
-    /**
-     * 原生箭头与蓝线组成的插入提示。固定定位在 body 上，不参与布局，
-     * 所以宿主行与工具栏图标都不会在拖动中跳动。
-     * @returns `{ showVertical, showHorizontal, hide, dispose }`；没有 body 时返回 null。
-     */
-    function createInsertionIndicator() {
-      if (typeof document === 'undefined' || !document.body) return null;
-      var line = document.createElement('div');
-      line.className = 'DFM_indicator';
-      line.setAttribute('aria-hidden', 'true');
-      line.style.display = 'none';
-      document.body.appendChild(line);
-      var show = function (axis, left, top, width, height) {
-        line.setAttribute('data-axis', axis);
-        line.style.left = left + 'px';
-        line.style.top = top + 'px';
-        line.style.width = width + 'px';
-        line.style.height = height + 'px';
-        line.style.display = 'block';
-      };
-      return {
-        showVertical: function (left, width, y) {
-          show('vertical', left, y - 6, width, 12);
-        },
-        showHorizontal: function (x, top, height) {
-          // 以左上角旋转后，原图形 y=6 的蓝线仍精确落在插入点 x 上。
-          show('horizontal', x + 6, top, height, 12);
-        },
-        hide: function () {
-          line.style.display = 'none';
-        },
-        dispose: function () {
-          if (line.parentNode) line.parentNode.removeChild(line);
-        },
-      };
-    }
-
-    /**
-     * 在浮层里把一次指针命中解析成“包含该面板标记的整行按钮”。
-     *
-     * 官方「更多」把图标渲染在行按钮内部，所以按标题/空白时不能直接 closest
-     * 到标记；这里先找指针所在的按钮，再检查按钮内部是否有面板标记。
-     * 行内的图钉按钮是独立按钮，不包含标记，因此不会误触发整行拖动。
-     * @param target - pointerdown 目标。
-     * @param menu - 浮层根节点。
-     * @param idAttr - 面板 id 属性名。
-     * @returns `{ row, id }` 或 null。
-     */
-    function menuRowForTarget(target, menu, idAttr) {
-      if (!target || typeof target.closest !== 'function' || !menu) return null;
-      var selector = '[' + idAttr + ']';
-      var button = target.closest('button');
-      while (button && menu.contains(button)) {
-        var marker = null;
-        if (typeof button.matches === 'function' && button.matches(selector)) marker = button;
-        else if (typeof button.querySelector === 'function') marker = button.querySelector(selector);
-        if (marker) {
-          var id = marker.getAttribute(idAttr);
-          if (id) return { row: button, id: id };
-        }
-        var parent = button.parentElement;
-        button = parent && typeof parent.closest === 'function' ? parent.closest('button') : null;
-      }
-      return null;
-    }
-
-    /**
-     * 在任意浮层菜单里做纵向换位：浮层由宿主 portal 渲染，行也由宿主渲染，
-     * 这里只按 `idAttr` 找到行、画插入线，松手后把新顺序交给调用方。
-     * 官方的「更多」和折叠工具栏自己的「更多」共用这一个控制器。
-     * @param menu - 浮层根节点。
-     * @param idAttr - 行上的面板 id 属性（`data-dfm-id` / `data-dfm-rail-menu-id`）。
-     * @param onReorder - `(id, index) => void`，index 为移除被拖行后的落点。
-     * @param tRef - 可选文案 ref（当前未使用，保留给无障碍提示扩展）。
-     * @returns 清理函数。
-     */
-    function installMenuReorder(menu, idAttr, onReorder, tRef) {
-      if (!menu || typeof onReorder !== 'function') return function () {};
-      var session = null;
-      var indicator = createInsertionIndicator();
-      var frame = null;
-      var selector = '[' + idAttr + ']';
-
-      function rowsAt() {
-        var markers = menu.querySelectorAll(selector);
-        var result = [];
-        var seen = [];
-        for (var index = 0; index < markers.length; index += 1) {
-          var marker = markers[index];
-          var id = marker.getAttribute(idAttr);
-          if (!id) continue;
-          var row = marker.closest ? marker.closest('button') : null;
-          if (!row || !menu.contains(row) || seen.indexOf(row) !== -1) continue;
-          var rect = row.getBoundingClientRect();
-          if (rect.width <= 0 || rect.height <= 0) continue;
-          seen.push(row);
-          result.push({ id: id, row: row, rect: rect });
-        }
-        result.sort(function (left, right) {
-          return left.rect.top - right.rect.top;
-        });
-        return result;
-      }
-
-      function targetAt(y, draggedId) {
-        var rows = rowsAt();
-        if (!rows.length) return null;
-        var without = [];
-        for (var index = 0; index < rows.length; index += 1) {
-          if (rows[index].id !== draggedId) without.push(rows[index]);
-        }
-        var target = 0;
-        for (var scan = 0; scan < without.length; scan += 1) {
-          if (y > without[scan].rect.top + without[scan].rect.height / 2) target += 1;
-        }
-        var lineY;
-        if (without.length === 0) lineY = rows[0].rect.top + rows[0].rect.height / 2;
-        else if (target === 0) lineY = without[0].rect.top - 2;
-        else if (target === without.length) lineY = without[without.length - 1].rect.bottom + 2;
-        else lineY = (without[target - 1].rect.bottom + without[target].rect.top) / 2;
-        return {
-          index: target,
-          lineY: lineY,
-          left: rows[0].rect.left,
-          width: rows[0].rect.width,
-        };
-      }
-
-      function resetSession() {
-        if (!session) return;
-        document.removeEventListener('pointermove', onPointerMove, true);
-        document.removeEventListener('pointerup', onPointerUp, true);
-        document.removeEventListener('pointercancel', onPointerCancel, true);
-        document.removeEventListener('keydown', onKeyDown, true);
-        if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
-        frame = null;
-        if (indicator) indicator.hide();
-        if (typeof document !== 'undefined') document.documentElement.removeAttribute(DRAG_ROOT_ATTR);
-        if (session.row && session.row.classList) session.row.classList.remove('DFM_rowDragging');
-        session = null;
-      }
-
-      function updateDrag(x, y) {
-        if (!session || !session.active) return;
-        var rect = menu.getBoundingClientRect();
-        if (x < rect.left - 12 || x > rect.right + 12 || y < rect.top - 12 || y > rect.bottom + 12) {
-          if (indicator) indicator.hide();
-          return;
-        }
-        var target = targetAt(y, session.id);
-        if (target && indicator) indicator.showVertical(target.left, target.width, target.lineY);
-      }
-
-      function onPointerMove(event) {
-        if (!session || event.pointerId !== session.pointerId) return;
-        if (!session.active) {
-          var dx = event.clientX - session.startX;
-          var dy = event.clientY - session.startY;
-          if (Math.abs(dx) + Math.abs(dy) < DRAG_START_DISTANCE) return;
-          session.active = true;
-          session.row.classList.add('DFM_rowDragging');
-          document.documentElement.setAttribute(DRAG_ROOT_ATTR, '');
-          if (event.cancelable) event.preventDefault();
-        } else if (event.cancelable) {
-          event.preventDefault();
-        }
-        session.x = event.clientX;
-        session.y = event.clientY;
-        if (frame !== null) return;
-        if (typeof requestAnimationFrame === 'function') {
-          frame = requestAnimationFrame(function () {
-            frame = null;
-            if (!session || !session.active) return;
-            updateDrag(session.x, session.y);
-          });
-        } else {
-          updateDrag(session.x, session.y);
-        }
-      }
-
-      function onPointerUp(event) {
-        if (!session || event.pointerId !== session.pointerId) return;
-        var drag = session;
-        // 浮层是 fixed/portal 的，菜单 rect 与页面坐标偶尔会差一帧；换位只需要
-        // 纵向落点，按行中点计算即可，不再用矩形二次否决。
-        var target = drag.active ? targetAt(event.clientY, drag.id) : null;
-        var active = drag.active;
-        resetSession();
-        if (!active) return;
-        suppressNextClick();
-        if (target) onReorder(drag.id, target.index);
-      }
-
-      function onPointerCancel(event) {
-        if (!session || event.pointerId !== session.pointerId) return;
-        resetSession();
-      }
-
-      function onKeyDown(event) {
-        if (event.key !== 'Escape' || !session) return;
-        event.preventDefault();
-        if (session.active) suppressNextClick();
-        resetSession();
-      }
-
-      function onPointerDown(event) {
-        if (event.button !== 0 || session) return;
-        var hit = menuRowForTarget(event.target, menu, idAttr);
-        if (!hit) return;
-        session = {
-          pointerId: event.pointerId,
-          id: hit.id,
-          row: hit.row,
-          startX: event.clientX,
-          startY: event.clientY,
-          x: event.clientX,
-          y: event.clientY,
-          active: false,
-        };
-        document.addEventListener('pointermove', onPointerMove, true);
-        document.addEventListener('pointerup', onPointerUp, true);
-        document.addEventListener('pointercancel', onPointerCancel, true);
-        document.addEventListener('keydown', onKeyDown, true);
-      }
-
-      var onBlur = function () {
-        if (session) resetSession();
-      };
-      if (typeof window.addEventListener === 'function') window.addEventListener('blur', onBlur);
-      menu.addEventListener('pointerdown', onPointerDown, true);
-      return function () {
-        if (typeof window.removeEventListener === 'function') window.removeEventListener('blur', onBlur);
-        resetSession();
-        if (indicator) indicator.dispose();
-        menu.removeEventListener('pointerdown', onPointerDown, true);
-      };
-    }
-
+    /* ── src/18-panel-drag.js — Expanded sidebar row reordering and legacy tray drop ── */
     /**
      * 展开侧栏的拖拽换位：按下后移动超过约 4px 立即进入拖拽（不再长按等待），
      * 拖动期间列表保持不动，只用一条蓝色插入线提示落点，松手才写 store。
@@ -3632,6 +3661,7 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /* ── src/19-rail-drag.js — Collapsed toolbar drag, ghost, pin/unpin crossing ── */
     /* ───────────── 折叠工具栏：拖拽排序（与展开侧栏同序）───────────── */
 
     /**
@@ -3905,7 +3935,7 @@ window.__ModuleLoader__.load({
       };
     }
 
-
+    /* ── src/20-rail.js — Collapsed toolbar component ── */
     /* ──────────────────────────── 工具栏 ──────────────────────────── */
 
     /**
@@ -4097,6 +4127,7 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /* ── src/21-apply.js — Client plugin registration and lifecycle ── */
     /* ───────────────────────────── 插件 ───────────────────────────── */
 
     /** 需要的客户端服务：槽位、布局、会话导航、语言、快捷键。 */
@@ -4368,6 +4399,7 @@ window.__ModuleLoader__.load({
       }, 'fold-minimal: more anchor');
     }
 
+    /* ── src/99-exports.js — Public and test exports ── */
     return {
       inject: inject,
       apply: apply,

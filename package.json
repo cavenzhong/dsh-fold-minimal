@@ -1,6 +1,6 @@
 {
   "name": "dsh-fold-minimal",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "侧栏折叠后，把左侧全局面板图标按左侧菜单顺序映射到窗口左上角的折叠工具栏；面板超过 4 个时第 4 格变成「更多」，悬停即展开其余面板；把侧栏拖到最小后继续往左拖，松手即收起；打开面板时显示「返回会话」按钮。v0.6 自动识别 DSH 版本：新版对齐官方固定菜单与「更多」，折叠工具栏拖动时整体展开、ghost 跟随鼠标，拖过固定边界直接调用官方固定/取消固定；官方「更多」与折叠「更多」都支持整行拖动换位；旧版保留插件自己的收起逻辑。插件详情页提供「折叠菜单 / 返回会话按钮 / 面板挪位与折叠」三个独立开关。",
   "engines": {
     "dsh": ">=0.2.0-0 <0.3.0-0"
@@ -22,11 +22,16 @@
     "locale/*.json",
     "icon.svg",
     "assets",
+    "src",
+    "scripts",
     "docs",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "check": "node scripts/build-client.mjs --check",
+    "pretest": "node scripts/build-client.mjs --check",
     "test": "node --test"
   },
   "dsh": {

@@ -1,0 +1,96 @@
+{
+  "modules": [
+    {
+      "file": "00-runtime.js",
+      "description": "React/ReactDOM and factory runtime"
+    },
+    {
+      "file": "01-constants.js",
+      "description": "Constants, attribute names, timing, cursors"
+    },
+    {
+      "file": "02-locales.js",
+      "description": "Chinese and English UI copy"
+    },
+    {
+      "file": "03-styles.js",
+      "description": "CSS tokens and style injection"
+    },
+    {
+      "file": "04-panels.js",
+      "description": "Panel snapshot, order merge, splitting, grouping"
+    },
+    {
+      "file": "05-storage.js",
+      "description": "Cookie/localStorage layout store and component flags"
+    },
+    {
+      "file": "06-version.js",
+      "description": "DSH release/capability detection and official setPinned resolution"
+    },
+    {
+      "file": "07-pins.js",
+      "description": "Official pinned-state store"
+    },
+    {
+      "file": "08-dom.js",
+      "description": "Host row/nav helpers and pinned-state observer"
+    },
+    {
+      "file": "09-data.js",
+      "description": "Panel observable source and React subscription helper"
+    },
+    {
+      "file": "10-shadow.js",
+      "description": "Shadow registration for ordering and row markers"
+    },
+    {
+      "file": "11-icons.js",
+      "description": "Icons and icon error boundary"
+    },
+    {
+      "file": "12-widgets.js",
+      "description": "Buttons, panel menu rows, collapsed More popover"
+    },
+    {
+      "file": "13-menus.js",
+      "description": "Official More observer and hover geometry"
+    },
+    {
+      "file": "14-settings.js",
+      "description": "Plugin detail page switches"
+    },
+    {
+      "file": "15-chrome.js",
+      "description": "Expanded back button, legacy tray, SidebarChrome"
+    },
+    {
+      "file": "16-drag-core.js",
+      "description": "Drag geometry, ghost, insertion indicator, legacy tray placement"
+    },
+    {
+      "file": "17-collapse-drag.js",
+      "description": "Drag the sidebar past its minimum width to collapse it"
+    },
+    {
+      "file": "18-panel-drag.js",
+      "description": "Expanded sidebar row reordering and legacy tray drop"
+    },
+    {
+      "file": "19-rail-drag.js",
+      "description": "Collapsed toolbar drag, ghost, pin/unpin crossing"
+    },
+    {
+      "file": "20-rail.js",
+      "description": "Collapsed toolbar component"
+    },
+    {
+      "file": "21-apply.js",
+      "description": "Client plugin registration and lifecycle"
+    },
+    {
+      "file": "99-exports.js",
+      "description": "Public and test exports"
+    }
+  ]
+}

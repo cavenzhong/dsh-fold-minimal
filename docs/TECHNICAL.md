@@ -307,7 +307,9 @@ dsh plugin --profile <profile> add link:/path/to/dsh-fold-minimal
 | 文件 | 作用 |
 |---|---|
 | `index.js` | Host 半，空实现（bundle 行需要一个包主模块）。 |
-| `client.js` | 浏览器半：版本/官方固定菜单探测、`shell.leading` 折叠工具栏（priority `-1`，随「折叠菜单」开关动态注册）、展开态返回按钮注入、`plugins.bundle.config` 的三个组件开关、`sidebar.panellist` 影子注册与拖拽换位、新版固定状态同步（影子标记 / aria-label 兜底）、官方「更多」与折叠「更多」浮层内的拖动换位、`sidebar.footer.action` 里的 More chevron/二级区、`sidebar.panellist.actions` 的新版探针/旧版锚点、状态 store 与 cookie 持久化、拖到底继续左拖即收起、clearance 同步。 |
+| `src/` | 浏览器半的源码，按功能拆分；`src/manifest.json` 定义拼接顺序。入口与模块地图见 [ARCHITECTURE](ARCHITECTURE.md)。 |
+| `scripts/build-client.mjs` | 零依赖构建/校验脚本：按 manifest 把 `src/` 拼进 `window.__ModuleLoader__.load` 包装，`--check` 检查 `client.js` 是否过期。 |
+| `client.js` | **生成产物**，由 `src/` 构建得到。内容：版本/官方固定菜单探测、`shell.leading` 折叠工具栏（priority `-1`，随「折叠菜单」开关动态注册）、展开态返回按钮注入、`plugins.bundle.config` 的三个组件开关、`sidebar.panellist` 影子注册与拖拽换位、新版固定状态同步（影子标记 / aria-label 兜底）、官方「更多」与折叠「更多」浮层内的拖动换位、`sidebar.footer.action` 里的 More chevron/二级区、`sidebar.panellist.actions` 的新版探针/旧版锚点、状态 store 与 cookie 持久化、拖到底继续左拖即收起、clearance 同步。 |
 | `docs/CODE_REVIEW.md` | 0.4.3 的结构、冗余和性能排查结论、计数验证与未覆盖边界。 |
 | `cordis.patch.yml` | Loader 行 `fold-minimal`。 |
 | `locale/zh.json`、`locale/en.json` | Plugins 页展示用标题/描述。 |
@@ -403,8 +405,10 @@ dsh plugin --profile <profile> add link:/path/to/dsh-fold-minimal
 ## 测试
 
 ```bash
-pnpm test
+npm test
 ```
+
+`pretest` 先运行 `node scripts/build-client.mjs --check`：只改 `src/` 不重新构建会让测试直接失败。
 
 - 不依赖 DOM 的纯逻辑测试：面板快照、排序、语言表、`isPanelActive`、
   `splitPanels`（面板切分规则，含收起项）、`mergePanelOrder`（保存顺序与新增面板
@@ -432,6 +436,7 @@ Node 22 / 24 运行同一套 `node --test`；测试无第三方依赖，不需�
 
 ## 更新记录
 
+- **0.6.1**：`client.js` 改为生成产物，源码按功能拆到 `src/`（23 个 fragment，manifest 定序）；新增零依赖 `scripts/build-client.mjs` 与 `npm run build` / `check`，`pretest` 校验生成文件；行为不变。模块地图见 [ARCHITECTURE](ARCHITECTURE.md)。
 - **0.6.0**：折叠「更多」改回平铺 + ghost：拖动时菜单关闭、工具栏展开为「固定 / 未固定」两区，跨边界调用官方 `setPinned`；官方「更多」与折叠「更多」整行可拖；修复拖动时光标压在竖向菜单上的问题。
 - **0.5.0**：自动识别 DSH 0.2.2+ 官方固定菜单：新版折叠工具栏只显示固定项、未固定项进官方「更多」，删除第二套隐藏状态；旧版保持原收起。新增独立「返回会话按钮」开关；修复折叠工具栏「更多」浮层被主面板遮挡导致一移开就消失（portal + 悬停走廊）；修复 0.2.2 `PanelRow` 多一层容器后排序失效、展开/折叠/更多不同步；官方「更多」与折叠「更多」浮层内支持拖动换位。
 - **0.4.3**：拖拽测量按帧合并，相同状态不重复通知或写存储；开关生命周期集中管理，排序关闭时不安装控制器；影子图标只订阅自己的隐藏状态。修复停用 / 失焦后的延迟折叠、存储访问受限、账本读取失败及特殊 id 兼容；移除失效预览、未使用图标与重复包装账本，详见 [排查记录](CODE_REVIEW.md)。
