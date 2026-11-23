@@ -34,7 +34,7 @@
     },
     {
       "file": "08-dom.js",
-      "description": "Host row/nav helpers and pinned-state observer"
+      "description": "Host row/nav helpers, pinned-state observer and cross-restart pin persistence"
     },
     {
       "file": "09-data.js",

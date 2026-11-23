@@ -16,6 +16,13 @@
 
 - **单一分区**：所有左侧面板放在同一区，顺序与展开态左侧主菜单完全一致；
   只在面板区两侧保留淡分割线。
+- **工具栏底色（v0.6.6）**：折叠工具栏坐在 `shell.leading` 座位上，悬浮于主面板
+  之上；部分插件页自带彩色或图片背景，透明底会让图标混进去。`.DFM_rail` 现在铺
+  一层 `--dsw-alias-bg-base`（浅色白、深色近黑）、`--dsw-radius-md` 圆角、
+  上下 3px / 左右 6px 内边距的色块：正常页面上与背景同色看不出来，插件背景上
+  则成为一条可读的圆角工具条。色块用负外边距抵消内边距，按钮仍停在原来的
+  88px / 25px 位置；多出的 3px 让选中或悬停底色不再和色块上下边缘贴在一起。
+  宽度仍进入 `useLeadingClearance` 的实测，标题让位自动跟上。
 - **面板区固定 4 格（v0.3）**：不超过 4 个时全部平铺；第 5 个出现时，第 4 格
   变成「更多」按钮（向下箭头），被顶掉的面板连同其余面板收进悬停菜单——不然
   第 4 个面板会失去入口。悬停约 80ms 展开、移开约 180ms 收回；点击/键盘也能
@@ -75,11 +82,15 @@
 
 - 开关行用一个与宿主 primitive 同款（`role="switch"` + `aria-checked`）的
   按钮实现；文案走 locale。
-- 状态 `{ enabled, toolbarEnabled, order, hidden }` 由 `createPanelLayoutStore` 持有：
-  - **cookie 是主存储**：DSH 桌面每次启动给 Web GUI 分配随机本地端口，而
-    `localStorage` 按 origin（含端口）隔离，重启会丢；cookie 只按 host 隔离，
+- 状态 `{ enabled, toolbarEnabled, order, hidden, unpinned }` 由 `createPanelLayoutStore` 持有：
+  - **桌面窗口用 `localStorage`**：DSH 桌面主窗口加载的是 `dsh-app://app`
+    自定义源，cookie 在该源上不落盘；这个源稳定，localStorage 反而能跨重启保留。
+    键为 `dsh.fold-minimal.panel-layout.v1`。
+  - **浏览器里用 cookie 兜底**：直接打开 `http://127.0.0.1:<随机端口>` 时，
+    localStorage 按 origin（含端口）隔离，重启会丢；cookie 只按 host 隔离，
     能跨端口保留。键为 `dsh_fold_minimal_panel_layout_v1`，`Max-Age` 一年。
-  - `localStorage` 镜像（`dsh.fold-minimal.panel-layout.v1`）只作同源兜底。
+  - 两边双写、读取时 cookie 优先、localStorage 兜底；`unpinned` 字段保存官方
+    未固定 id（`null` 表示从未保存，`[]` 表示保存过且全部固定）。
   - `trayOpen`、`dragActive`、`dragPanelId` 只存在内存，不持久化；拖动时只画插入线，松手才提交顺序，不维护额外预览顺序。
   - 0.4.3 起字段与数组内容相同时不创建新快照、不通知订阅者，也不重复写入；cookie / localStorage 的属性访问与读写均支持异常降级。
 
@@ -174,9 +185,21 @@
 
 - `installPinnedObserver` 在 `apply` 里独立安装，不依赖 `SidebarChrome` 的挂载时序。
   优先从官方 `shell.leading` 注入结果取得 `hooks.entryPins`，直接订阅未固定 id
-  数组，并跟随面板增删重算固定集合，不维护第二套可写固定状态。
+  数组，并跟随面板增删重算固定集合；插件不维护第二套可写的固定来源，只保留一份
+  持久化镜像。
   缺少该 observable 时回退 nav 的 `aria-label` / `data-dfm-id` 观测；兼容路径
   跟随侧栏根替换，无法可靠匹配时保留上次状态。
+- **跨重启记忆（v0.6.6）**：官方 `panel-pins.ts` 是纯内存实现，退出 DSH 会回到
+  全部固定。`installOfficialPinsPersistence` 在官方 sidebar 注册后把
+  `entryPins` 的未固定 id 写入 layout store 的 `unpinned` 字段；启动时先按存档
+  逐项调用官方 `setPinned(id, false)`，再订阅后续变化保存。顺序固定为「先回填、
+  再订阅」，否则启动时读到的默认全部固定会立刻覆盖存档。官方 sidebar 晚注册时
+  通过槽位订阅补连；`plugins` 始终跳过。`unpinned: null` 表示没有存档（按官方
+  默认全部固定），`[]` 表示保存过且当前全部固定，两者不能合并。
+  同一页面对同一个官方 `entryPins` source 只回填一次（`window` 上的
+  `__dsh_fold_minimal_pins_v1__` 记录 source 身份）：插件 HMR / 停用后重新启用
+  时官方状态才是最新的，只把当前状态写回存档，避免旧存档撤销用户停用期间的操作；
+  官方 sidebar 重建（source 变化）或整页重载（window 新）才再次回填。
 - 官方「更多」菜单渲染时，它的 owner props `entries` 带权威 `pinned` 布尔值；
   `MoreMenuObserver` 在每个浮层打开时回写 `createPinsStore`，修正 DOM 推断。
 - `splitOfficialPanels` 只平铺固定项；固定项超过 4 个时保留前 3 个，固定项溢出
@@ -296,8 +319,9 @@ dsh plugin --profile <profile> add link:/path/to/dsh-fold-minimal
 - `sidebar.panellist` 的图标组件按 `{ size, active }` 直接渲染；如果某个插件的
   图标还依赖 entry 的 `t`、标准 props（`usePanelInfo` 等）或 entry `inject`，
   它会退化为兜底图标（影子包装有错误边界），但不会影响整条工具栏。
-- 新版固定状态由官方保存在内存中；插件只在渲染时读取（优先影子标记，关闭排序
-  时用 nav 行的 `aria-label` 与面板顺序匹配），不写官方状态。
+- 官方固定状态保存在内存中；插件读取官方 `entryPins`（优先影子标记，关闭排序
+  时用 nav 行的 `aria-label` 与面板顺序匹配）用于渲染，并把未固定 id 存档；
+  启动时通过官方 `setPinned` 回填，不直接改 DSH 配置文件。
 - 折叠工具栏「更多」在新版通过 `react-dom` portal 到 `document.body`：浮层不再
   受标题栏/主面板层叠上下文影响，并用按钮与浮层的几何走廊连接悬停区域。
 - 面板很多或窗口极窄时，超出窗口的部分仍会被 frame 裁掉；面板区固定 4 格后
@@ -440,6 +464,7 @@ Node 22 / 24 运行同一套 `node --test`；测试无第三方依赖，不需�
 
 ## 更新记录
 
+- **0.6.6**：官方未固定 id 跨重启存档并回填（`installOfficialPinsPersistence`），固定/取消固定与顺序不再每次重设；折叠工具栏增加与主面板同色的圆角底色（上下 3px 留白），插件页彩色/图片背景上图标仍可读。新增固定存档、晚注册补连、来源重建、存储合并/回环与工具栏样式 6 项测试，共 70 项。
 - **0.6.5**：四处拖动落点共用 `insertionTargetAt`，按仍占位的完整列表计算视觉边界；展开侧栏移除 ghost，顶部折叠工具栏保留；折叠「更多」分开固定溢出项与未固定项。官方菜单预览和提交共用边界检测，固定状态优先订阅 `entryPins`，跨区操作核对宿主是否接受；修复旧版 tray 识别及版本检测。64 项测试与 27 项浏览器夹具检查通过，详见 [适配排查](REFACTOR_REVIEW.md)。
 - **0.6.1**：`client.js` 改为生成产物，源码按功能拆到 `src/`（23 个 fragment，manifest 定序）；新增零依赖 `scripts/build-client.mjs` 与 `npm run build` / `check`，`pretest` 校验生成文件；行为不变。模块地图见 [ARCHITECTURE](ARCHITECTURE.md)。
 - **0.6.0**：折叠「更多」改回平铺 + ghost：拖动时菜单关闭、工具栏展开为「固定 / 未固定」两区，跨边界调用官方 `setPinned`；官方「更多」与折叠「更多」整行可拖；修复拖动时光标压在竖向菜单上的问题。

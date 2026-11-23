@@ -3,7 +3,14 @@
     var CSS_TAG = 'dsh-fold-minimal/FoldMinimal.css';
     var CSS = [
       // 一行图标；tooltip 绝对定位在按钮下方，靠 :hover / :focus-visible 显示。
-      '.DFM_rail{box-sizing:border-box;display:flex;align-items:center;gap:2px;height:28px}',
+      // 工具栏浮在插件主面板上方，插件页可能自带非白背景；给整条工具栏铺一层
+      // 与主面板同色的圆角色块，正常页面上看不见，深色插件背景上也不会让图标
+      // 混进去。颜色用主题 token，浅色即白、深色即近黑。左右内边距用负外边距
+      // 抵消，色块向两侧各扩 6px，但第一个按钮仍停在宿主的 88px 起始位。
+      // 上下同样用 3px 内边距 + 负外边距：色块比按钮高 6px，给选中/悬停底色
+      // 留出呼吸空间，按钮本身的位置和行高不变。
+      '.DFM_rail{box-sizing:border-box;display:flex;align-items:center;gap:2px;height:34px;',
+      'margin:-3px -6px;padding:3px 6px;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base)}',
       '.DFM_divider{flex:none;width:1px;height:16px;margin:0 6px;border-radius:1px;',
       'background:var(--dsw-alias-border-l2);opacity:.55}',
       '.DFM_button{box-sizing:border-box;position:relative;flex:none;display:inline-flex;align-items:center;',

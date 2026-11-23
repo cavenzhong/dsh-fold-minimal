@@ -31,10 +31,10 @@ devDependency，改变这个包最重要的维护边界。
 | `02-locales.js` | 中英文 UI 文案 | 新增/修改开关、提示文案 |
 | `03-styles.js` | 全部 CSS 与样式注入 | 改工具栏、菜单、拖拽提示外观 |
 | `04-panels.js` | 面板快照、顺序合并、切分、分组重排 | 改 4 格规则、固定/未固定切分 |
-| `05-storage.js` | cookie/localStorage、layout store、三个开关 | 改持久化字段、组件开关默认值 |
+| `05-storage.js` | cookie/localStorage、layout store、三个开关、固定存档 | 改持久化字段、组件开关默认值 |
 | `06-version.js` | release/官方能力探测、官方注入与 `setPinned` 确认 | 改新版/旧版判定、官方兼容 |
 | `07-pins.js` | 官方固定状态 store | 改固定状态缓存/订阅 |
-| `08-dom.js` | 宿主行/nav 识别、官方固定状态订阅与 DOM 兼容观测 | 适配 DSH 侧栏 DOM 结构变化 |
+| `08-dom.js` | 宿主行/nav 识别、官方固定状态订阅、固定存档回填与 DOM 兼容观测 | 适配 DSH 侧栏 DOM 结构变化、固定状态跨重启 |
 | `09-data.js` | 面板 observable source、React 订阅 | 改面板账本同步 |
 | `10-shadow.js` | 同 id 影子注册与图标包装 | 改排序账本、行隐藏 |
 | `11-icons.js` | 内置图标与错误边界 | 换图标、兜底图标 |
@@ -56,6 +56,7 @@ devDependency，改变这个包最重要的维护边界。
 |---|---|
 | 折叠后工具栏显示哪些面板、顺序 | `04-panels.js` + `20-rail.js` |
 | 新版固定/未固定怎么判定 | `06-version.js` + `07-pins.js` + `08-dom.js` |
+| 固定/取消固定为什么退出 DSH 后还在 | `08-dom.js` 的 `installOfficialPinsPersistence` + `05-storage.js` 的 `unpinned` |
 | 拖过固定边界时固定/取消固定 | `19-rail-drag.js` + `06-version.js` 的 `resolveOfficialSidebar` / `setOfficialPinned` |
 | 折叠「更多」的 ghost/平铺拖拽 | `19-rail-drag.js` + `20-rail.js` + `12-widgets.js` |
 | 官方「更多」里整行拖动 | `13-menus.js` 的 `installMenuReorder`/`menuRowForTarget` |

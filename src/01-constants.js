@@ -26,6 +26,8 @@
     var OFFICIAL_MORE_ID = 'entry-customization';
     /** 官方固定菜单「更多」首次随该版本交付；用作无法读取 boot 信息时的兜底。 */
     var OFFICIAL_MORE_RELEASE = '0.2.2-rc.2';
+    /** 官方始终固定、不允许取消固定的面板 id（与 ui-sidebar 的 FIXED_PANEL_ID 一致）。 */
+    var FIXED_PANEL_ID = 'plugins';
     /** 提供官方「更多」固定/取消固定的 Client 包；boot 图里出现它即说明是新版。 */
     var OFFICIAL_MORE_PACKAGE = '@deepseek-ai/dsh-client-ui-entry-customization';
     /**
@@ -47,15 +49,24 @@
     /* ────────────── v0.4：面板排序与折叠（可选部件）────────────── */
 
     /**
-     * 排序/隐藏状态的存储位置。
+     * 排序/隐藏/固定状态的存储位置。
      *
-     * DSH 桌面每次启动给 Web GUI 随机分配本地端口，而 localStorage 按 origin
-     * （含端口）隔离，重启会丢。cookie 只按 host 隔离，正好跨端口保留；再镜像
-     * 一份 localStorage 作为同源会话内的快速路径与兜底。不读写 Host 配置。
+     * 桌面版窗口加载的是 `dsh-app://app` 自定义源：cookie 在该源上不落盘，
+     * localStorage 反而按这个稳定源持久化。浏览器里则相反，DSH 桌面每次启动
+     * 给 Web GUI 随机分配本地端口，localStorage 按 origin（含端口）隔离会丢，
+     * cookie 只按 host 隔离能跨端口保留。所以两边都写、读时谁有值用谁。
+     * 不读写 Host 配置。
      */
     var LAYOUT_COOKIE = 'dsh_fold_minimal_panel_layout_v1';
     var LAYOUT_STORAGE_KEY = 'dsh.fold-minimal.panel-layout.v1';
     var LAYOUT_COOKIE_MAX_AGE = 31536000;
+    /**
+     * 页面级固定回填状态：记录本页面已经回填过的官方 `entryPins` source。
+     * 插件 HMR / 停用后再启用时 window 不变、官方 source 也不变，此时不能拿旧存档
+     * 再次回填（会撤销用户停用期间的操作）；整页重载或官方 sidebar 重建时 source
+     * 变化，才按存档回填。
+     */
+    var PIN_PAGE_STATE = '__dsh_fold_minimal_pins_v1__';
 
     /**
      * 拖拽启动阈值（px）：按下后移动超过这个距离就立即进入换位状态并显示

@@ -165,3 +165,127 @@
         }
       };
     }
+
+    /**
+     * 页面级固定回填状态（见 `PIN_PAGE_STATE`）。
+     * 拿不到 window 时返回 null，调用方退化为每个实例回填一次。
+     * @returns `{ source }` 或 null。
+     */
+    function pinPageState() {
+      if (typeof window === 'undefined') return null;
+      try {
+        var current = window[PIN_PAGE_STATE];
+        if (current && typeof current === 'object') return current;
+        var created = { source: null };
+        Object.defineProperty(window, PIN_PAGE_STATE, { configurable: true, value: created });
+        return created;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    /**
+     * 把官方固定状态镜像到本机存储，并在下次启动时回填。
+     *
+     * 官方 ui-sidebar 的 pin 列表是纯内存的（`panel-pins.ts` 注释为
+     * "In-memory pin choices"），退出 DSH 就回到「全部固定」。插件既然已经把
+     * 顺序存下来了，也顺手把官方未固定 id 存一份；启动时在官方 sidebar 注册
+     * 后逐项调用 `setPinned(id, false)`，折叠工具栏与官方「更多」就会恢复上次
+     * 的分组，不需要用户重新取消固定。
+     *
+     * 时序必须是「先回填、再订阅保存」：否则启动时读到官方默认的全部固定，
+     * 会立刻把存档覆盖成空列表。同一页面里同一个官方 source 只回填一次：
+     * 插件 HMR / 停用后重新启用时官方状态才是最新的，旧存档不能反过来撤销用户
+     * 停用期间的操作；官方 sidebar 重建（source 变化）或整页重载才再次回填。
+     * @param ctx - 客户端根上下文。
+     * @param layout - 布局 store（提供 `unpinned` 存档与 `setUnpinned`）。
+     * @returns 清理函数。
+     */
+    function installOfficialPinsPersistence(ctx, layout) {
+      var disposed = false;
+      var official = null;
+      var source = null;
+      var offSource = null;
+      var offSlot = null;
+
+      var save = function () {
+        try {
+          if (!source || typeof source.getSnapshot !== 'function') return;
+          var current = source.getSnapshot();
+          if (!Array.isArray(current)) return;
+          layout.setUnpinned(current);
+        } catch (error) {
+          // 存储或 layout 订阅者异常不能冒泡回官方 setPinned，
+          // 否则跨边界拖拽会把“pin 已成功”误判成官方拒绝并放弃排序。
+        }
+      };
+
+      var restore = function () {
+        var saved = layout.getSnapshot().unpinned;
+        if (!Array.isArray(saved) || !official) return;
+        var current = source && typeof source.getSnapshot === 'function' ? source.getSnapshot() : [];
+        var active = Object.create(null);
+        if (Array.isArray(current)) {
+          for (var index = 0; index < current.length; index += 1) active[current[index]] = true;
+        }
+        for (var scan = 0; scan < saved.length; scan += 1) {
+          var id = saved[scan];
+          // plugins 始终固定；已经未固定的项不必重复提交。
+          if (typeof id !== 'string' || id.length === 0 || id === FIXED_PANEL_ID || active[id]) continue;
+          try {
+            official.setPinned(id, false);
+          } catch (error) {
+            // 官方拒绝时跳过；当前已知的拒绝只有 plugins，已在上面提前跳过。
+          }
+        }
+      };
+
+      var connect = function () {
+        if (disposed) return;
+        var candidate = resolveOfficialSidebar(ctx);
+        if (!candidate || !candidate.hooks || !candidate.hooks.entryPins) return;
+        var next = candidate.hooks.entryPins;
+        if (next === source) return;
+        if (offSource) {
+          offSource();
+          offSource = null;
+        }
+        official = candidate;
+        source = next;
+        var page = pinPageState();
+        if (!page || page.source !== source) {
+          restore();
+          if (page) page.source = source;
+        }
+        if (typeof source.subscribe === 'function') {
+          try {
+            offSource = source.subscribe(save);
+          } catch (error) {
+            offSource = null;
+          }
+        }
+        // 回填之后的实际状态（或同一 source 再次启用时的官方状态）才是要保存的状态。
+        save();
+      };
+
+      connect();
+      // 官方 sidebar 可能晚于本插件注册，也可能被整体重建；槽位变化时重新对账。
+      if (ctx && ctx.slots && typeof ctx.slots.subscribe === 'function') {
+        try {
+          offSlot = ctx.slots.subscribe(SLOT, connect);
+        } catch (error) {
+          offSlot = null;
+        }
+        // subscribe 与 connect 之间若有注册到达，补一次。
+        connect();
+      }
+      return function () {
+        disposed = true;
+        if (offSource) offSource();
+        offSource = null;
+        if (offSlot) offSlot();
+        offSlot = null;
+        official = null;
+        source = null;
+      };
+    }

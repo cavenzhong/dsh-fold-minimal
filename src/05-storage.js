@@ -1,7 +1,7 @@
     /**
      * 把任意读到的值收成合法的排序/隐藏状态。
      * @param value - 来自 cookie / localStorage 的 JSON。
-     * @returns `{ enabled, order, hidden }`；无效值回落到默认关闭。
+     * @returns `{ enabled, order, hidden, unpinned, toolbar, back }`；无效值回落到默认关闭。
      */
     function sanitizeLayoutPrefs(value) {
       var source = value && typeof value === 'object' ? value : {};
@@ -18,6 +18,10 @@
         enabled: source.enabled === true,
         order: clean(source.order),
         hidden: clean(source.hidden),
+        // 官方未固定 id。`null` 表示从未保存过（按官方默认：全部固定），
+        // `[]` 表示保存过且当前全部固定 —— 两者必须区分，否则新面板会把
+        // 旧存档里的「全部固定」误当成「没有偏好」。
+        unpinned: Array.isArray(source.unpinned) ? clean(source.unpinned) : null,
         // 原有「折叠菜单」组件默认开启；只有显式保存为 false 才关闭。
         toolbar: source.toolbar !== false,
         // 「返回会话」独立开关，默认开启；旧存档没有该字段时按开启处理。
@@ -79,19 +83,22 @@
       }
     }
 
-    /** 写回 localStorage 镜像；异常时忽略。 */
+    /** 写回 localStorage；异常时忽略。 */
     function writeLayoutStorage(prefs) {
       if (typeof window === 'undefined') return;
       try {
         if (window.localStorage) window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(prefs));
       } catch (error) {
-        // 忽略：cookie 仍是跨重启的主存储。
+        // 忽略：cookie 仍是浏览器里的跨端口存储。
       }
     }
 
     /**
-     * 读取启动状态：cookie 优先（跨端口），localStorage 仅作兜底。
-     * @returns `{ enabled, order, hidden }`。
+     * 读取启动状态：cookie 优先（浏览器里跨端口），localStorage 兜底。
+     *
+     * 桌面版窗口实际加载的是 `dsh-app://app` 自定义源，cookie 在该源上不落盘，
+     * 而 localStorage 按这个稳定源持久化；因此两边都写、读时谁有值用谁。
+     * @returns `{ enabled, order, hidden, unpinned, toolbar, back }`。
      */
     function readLayoutPrefs() {
       var cookie = readLayoutCookie();
@@ -99,7 +106,7 @@
       return sanitizeLayoutPrefs(readLayoutStorage());
     }
 
-    /** 持久化排序状态（cookie + localStorage 镜像）。 */
+    /** 持久化排序/固定状态（cookie + localStorage 镜像）。 */
     function writeLayoutPrefs(prefs) {
       var clean = sanitizeLayoutPrefs(prefs);
       writeLayoutCookie(clean);
@@ -110,7 +117,8 @@
      * 排序/显隐状态的小型 observable store。
      *
      * 快照字段：`enabled`（设置开关）、`order`（保存的 id 顺序）、
-     * `hidden`（收起的 id）、`trayOpen`（二级区展开，不持久化）、
+     * `hidden`（收起的 id）、`unpinned`（官方未固定 id 的存档镜像，
+     * `null` 表示从未保存）、`trayOpen`（二级区展开，不持久化）、
      * `dragActive` / `dragPanelId`（拖拽中的临时状态，不持久化）。
      * @param initial - `readLayoutPrefs()` 的结果。
      * @returns store：`subscribe/getSnapshot` + 动作。
@@ -123,6 +131,7 @@
         backEnabled: prefs.back,
         order: prefs.order,
         hidden: prefs.hidden,
+        unpinned: prefs.unpinned,
         trayOpen: false,
         dragActive: false,
         dragPanelId: null,
@@ -152,6 +161,7 @@
             enabled: next.enabled,
             order: next.order,
             hidden: next.hidden,
+            unpinned: next.unpinned,
             toolbar: next.toolbarEnabled,
             back: next.backEnabled,
           });
@@ -199,6 +209,15 @@
         setPlacement: function (order, hidden) {
           var next = sanitizeLayoutPrefs({ order: order, hidden: hidden });
           patch({ order: next.order, hidden: next.hidden }, true);
+        },
+        /**
+         * 保存官方未固定 id 的镜像，供下次启动回填给官方 `setPinned`。
+         * 传 `null` 表示清掉存档（回到官方默认全部固定）。
+         * @param unpinned - 官方 entryPins 快照，或 null。
+         */
+        setUnpinned: function (unpinned) {
+          var next = Array.isArray(unpinned) ? sanitizeLayoutPrefs({ unpinned: unpinned }).unpinned : null;
+          patch({ unpinned: next }, true);
         },
         setTrayOpen: function (open) {
           patch({ trayOpen: open === true }, false);

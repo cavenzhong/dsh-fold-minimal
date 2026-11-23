@@ -26,6 +26,11 @@
         ctx.effect(function () {
           return installPinnedObserver(pins, panels.source, ctx);
         }, 'fold-minimal: pinned observer');
+        // 官方 pin 只在内存里，退出 DSH 会重置；插件把未固定 id 存到本机，
+        // 启动时回填，避免用户每次都要重新取消固定、重新调整顺序。
+        ctx.effect(function () {
+          return installOfficialPinsPersistence(ctx, layout);
+        }, 'fold-minimal: pinned persistence');
       }
 
       var syncAll = function () {

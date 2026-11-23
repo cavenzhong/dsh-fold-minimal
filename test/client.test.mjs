@@ -42,6 +42,8 @@ const {
   DRAG_COLLAPSE_OVERSHOOT,
   DRAG_START_DISTANCE,
   LAYOUT_COOKIE,
+  PIN_PAGE_STATE,
+  CSS,
   dictionaries,
   labelOf,
   buildPanels,
@@ -75,6 +77,7 @@ const {
   hostPanelRowItem,
   pinnedIdsFromLabels,
   installPinnedObserver,
+  installOfficialPinsPersistence,
   installMenuReorder,
   menuRowForTarget,
   resolveOfficialSidebar,
@@ -405,6 +408,7 @@ test('sanitizeLayoutPrefs：非法值回落到关闭，id 去重且丢弃空值'
     enabled: false,
     order: [],
     hidden: [],
+    unpinned: null,
     toolbar: true,
     back: true,
   });
@@ -414,10 +418,16 @@ test('sanitizeLayoutPrefs：非法值回落到关闭，id 去重且丢弃空值'
       order: ['a', 'a', '', 3, 'b'],
       hidden: ['c', null, 'c'],
     }),
-    { enabled: false, order: ['a', 'b'], hidden: ['c'], toolbar: true, back: true },
+    { enabled: false, order: ['a', 'b'], hidden: ['c'], unpinned: null, toolbar: true, back: true },
   );
   assert.equal(sanitizeLayoutPrefs({ enabled: true }).enabled, true);
   assert.equal(sanitizeLayoutPrefs({ toolbar: false }).toolbar, false);
+  assert.deepEqual(
+    sanitizeLayoutPrefs({ unpinned: ['a', 'a', '', 3, 'b'] }).unpinned,
+    ['a', 'b'],
+    '未固定 id 去重并丢弃非字符串',
+  );
+  assert.deepEqual(sanitizeLayoutPrefs({ unpinned: [] }).unpinned, [], '空数组表示「全部固定」，不是没有偏好');
 });
 
 test('面板排序 store：开关/顺序/收起/重置，相同顺序不重复通知', () => {
@@ -432,6 +442,7 @@ test('面板排序 store：开关/顺序/收起/重置，相同顺序不重复�
     backEnabled: true,
     order: ['b'],
     hidden: ['a'],
+    unpinned: null,
     trayOpen: false,
     dragActive: false,
     dragPanelId: null,
@@ -453,6 +464,10 @@ test('面板排序 store：开关/顺序/收起/重置，相同顺序不重复�
   const before = notifications;
   store.setOrder(['c', 'b']);
   assert.equal(notifications, before, '相同顺序不应触发重渲染');
+  store.setUnpinned(['a', 'a', '']);
+  assert.deepEqual(store.getSnapshot().unpinned, ['a'], '未固定 id 去重后写入快照');
+  store.setUnpinned(null);
+  assert.equal(store.getSnapshot().unpinned, null, '传 null 清掉固定存档');
   store.setTrayOpen(true);
   assert.equal(store.getSnapshot().trayOpen, true);
   store.setDragActive(true);
@@ -1194,7 +1209,7 @@ test('布局状态去重：重复开关/顺序/显隐不写存储，临时拖动
 test('存储受限：cookie/localStorage 属性读取或写入抛错不阻止加载与内存更新', () => {
   const storage = Object.getOwnPropertyDescriptor(window, 'localStorage');
   const previousDocument = globalThis.document;
-  const fallback = { enabled: true, toolbar: false, back: true, order: ['b', 'a'], hidden: ['b'] };
+  const fallback = { enabled: true, toolbar: false, back: true, order: ['b', 'a'], hidden: ['b'], unpinned: null };
   try {
     globalThis.document = { get cookie() { throw new Error('cookie blocked'); }, set cookie(value) { throw new Error('cookie blocked'); } };
     Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: () => JSON.stringify(fallback) } });
@@ -1205,7 +1220,7 @@ test('存储受限：cookie/localStorage 属性读取或写入抛错不阻止加
     Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('storage blocked'); } });
     assert.equal(readLayoutPrefs().enabled, false, '有效 cookie 优先，不触碰镜像');
     globalThis.document = { get cookie() { throw new Error('cookie blocked'); }, set cookie(value) { throw new Error('cookie blocked'); } };
-    assert.deepEqual(readLayoutPrefs(), { enabled: false, toolbar: true, back: true, order: [], hidden: [] });
+    assert.deepEqual(readLayoutPrefs(), { enabled: false, toolbar: true, back: true, order: [], hidden: [], unpinned: null });
     const store = createPanelLayoutStore(readLayoutPrefs());
     assert.doesNotThrow(() => store.setEnabled(true));
     assert.equal(store.getSnapshot().enabled, true);
@@ -2104,4 +2119,200 @@ test('官方固定动作以提交后的状态确认成功，拒绝取消固定�
   official.setPinned = () => { throw new Error('unavailable'); };
   assert.equal(setOfficialPinned(ctx, 'panel-1', false), false);
   assert.equal(setOfficialPinned({}, 'panel-1', false), false);
+});
+
+test('官方固定状态跨重启：先回填未固定项再订阅保存，官方晚注册时补连', () => {
+  const slots = new Set();
+  const pinnedListeners = new Set();
+  let registerOfficial = false;
+  let unpinned = [];
+  const notify = () => pinnedListeners.forEach((fn) => fn());
+  const official = {
+    setPinned(id, pinned) {
+      if (id === 'plugins') return;
+      if (pinned) unpinned = unpinned.filter((item) => item !== id);
+      else if (unpinned.indexOf(id) === -1) unpinned = [...unpinned, id];
+      notify();
+    },
+    hooks: {
+      entryPins: {
+        getSnapshot: () => unpinned,
+        subscribe(fn) {
+          pinnedListeners.add(fn);
+          return () => pinnedListeners.delete(fn);
+        },
+      },
+    },
+  };
+  const ctx = {
+    slots: {
+      entries: () => (registerOfficial ? [{ inject: () => official }] : []),
+      subscribe: (_slot, fn) => {
+        slots.add(fn);
+        return () => slots.delete(fn);
+      },
+    },
+  };
+  delete globalThis.window[PIN_PAGE_STATE];
+  const layout = createPanelLayoutStore({
+    enabled: false,
+    order: [],
+    hidden: [],
+    unpinned: ['panel-1', 'plugins'],
+  });
+  const dispose = installOfficialPinsPersistence(ctx, layout);
+  assert.deepEqual(unpinned, [], '官方还没注册时不能提交');
+  assert.deepEqual(layout.getSnapshot().unpinned, ['panel-1', 'plugins'], '回填前不能覆盖存档');
+
+  registerOfficial = true;
+  slots.forEach((fn) => fn());
+  assert.deepEqual(unpinned, ['panel-1'], '回填未固定项，且跳过 plugins');
+  assert.deepEqual(layout.getSnapshot().unpinned, ['panel-1']);
+
+  official.setPinned('panel-1', true);
+  assert.deepEqual(layout.getSnapshot().unpinned, [], '用户重新固定后立即写回存档');
+  official.setPinned('panel-2', false);
+  assert.deepEqual(layout.getSnapshot().unpinned, ['panel-2']);
+
+  dispose();
+  assert.equal(pinnedListeners.size, 0);
+  assert.equal(slots.size, 0);
+});
+
+test('官方固定状态首次启动没有存档时按官方默认全部固定，并开始记录后续变化', () => {
+  let unpinned = [];
+  const official = {
+    setPinned(id, pinned) {
+      if (id === 'plugins') return;
+      if (pinned) unpinned = unpinned.filter((item) => item !== id);
+      else if (unpinned.indexOf(id) === -1) unpinned = [...unpinned, id];
+    },
+    hooks: { entryPins: { getSnapshot: () => unpinned, subscribe: () => () => {} } },
+  };
+  const ctx = { slots: { entries: () => [{ inject: () => official }], subscribe: () => () => {} } };
+  delete globalThis.window[PIN_PAGE_STATE];
+  const layout = createPanelLayoutStore({ enabled: false, order: [], hidden: [], unpinned: null });
+  const dispose = installOfficialPinsPersistence(ctx, layout);
+  assert.deepEqual(layout.getSnapshot().unpinned, [], '没有存档时记录当前全部固定');
+  dispose();
+});
+
+test('同一页面内同一官方 source 只回填一次；官方 sidebar 重建后才按存档再次回填', () => {
+  delete globalThis.window[PIN_PAGE_STATE];
+  const makeSource = () => {
+    let unpinned = [];
+    const listeners = new Set();
+    const source = {
+      getSnapshot: () => unpinned,
+      subscribe(fn) {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+    };
+    const official = {
+      setPinned(id, pinned) {
+        if (id === 'plugins') return;
+        const has = unpinned.indexOf(id) !== -1;
+        if (pinned && has) unpinned = unpinned.filter((item) => item !== id);
+        else if (!pinned && !has) unpinned = [...unpinned, id];
+        listeners.forEach((fn) => fn());
+      },
+      hooks: { entryPins: source },
+    };
+    return { official, get unpinned() { return unpinned; } };
+  };
+  const ctxFor = (official) => ({
+    slots: { entries: () => [{ inject: () => official }], subscribe: () => () => {} },
+  });
+
+  const first = makeSource();
+  const layoutA = createPanelLayoutStore({ unpinned: ['panel-1'] });
+  const disposeA = installOfficialPinsPersistence(ctxFor(first.official), layoutA);
+  assert.deepEqual(first.unpinned, ['panel-1'], '首次连接按存档回填');
+
+  // 插件停用期间用户重新固定 panel-1；重新启用时官方 source 不变，不能再用旧存档撤销。
+  first.official.setPinned('panel-1', true);
+  disposeA();
+  const layoutB = createPanelLayoutStore({ unpinned: ['panel-1'] });
+  const disposeB = installOfficialPinsPersistence(ctxFor(first.official), layoutB);
+  assert.deepEqual(first.unpinned, [], '同一 source 再次启用不回填旧存档');
+  assert.deepEqual(layoutB.getSnapshot().unpinned, [], '当前官方状态覆盖存档');
+  disposeB();
+
+  // 官方 sidebar 重建：新 source、内存状态为空；此时按当前存档回填。
+  const rebuilt = makeSource();
+  const layoutC = createPanelLayoutStore({ unpinned: ['panel-2'] });
+  const disposeC = installOfficialPinsPersistence(ctxFor(rebuilt.official), layoutC);
+  assert.deepEqual(rebuilt.unpinned, ['panel-2'], 'source 变化后重新回填');
+  disposeC();
+  delete globalThis.window[PIN_PAGE_STATE];
+});
+
+test('折叠工具栏有与主题底色一致、带圆角的背景块，避免图标混进插件背景', () => {
+  assert.match(
+    CSS,
+    /\.DFM_rail\{[^}]*background:var\(--dsw-alias-bg-base\)/,
+    '工具栏应铺主题底色的色块，浅色为白、深色为近黑',
+  );
+  assert.match(CSS, /\.DFM_rail\{[^}]*border-radius:var\(--dsw-radius-md\)/, '色块需要圆角');
+  assert.match(CSS, /\.DFM_rail\{[^}]*height:34px/, '色块要比 28px 按钮高，给选中框留出上下空间');
+  assert.match(CSS, /\.DFM_rail\{[^}]*padding:3px 6px/, '上下 3px、左右 6px 内边距');
+  assert.match(CSS, /\.DFM_rail\{[^}]*margin:-3px -6px/, '负外边距用于保持按钮位置不变');
+});
+
+test('固定存档经 cookie / localStorage 回环读写，null 与空数组语义不丢失', () => {
+  const storage = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  const previousDocument = globalThis.document;
+  let stored = null;
+  let cookie = '';
+  try {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        setItem(_key, value) { stored = JSON.parse(value); },
+        getItem() { return stored === null ? null : JSON.stringify(stored); },
+      },
+    });
+    globalThis.document = {
+      get cookie() { return cookie; },
+      set cookie(value) { cookie = value; },
+    };
+    const store = createPanelLayoutStore({ enabled: true, order: ['a'], unpinned: ['b'] });
+    store.setUnpinned(['c']);
+    assert.deepEqual(stored.unpinned, ['c'], '写入 localStorage');
+    assert.ok(cookie.indexOf(LAYOUT_COOKIE + '=') !== -1, '同时写入 cookie');
+    assert.deepEqual(readLayoutPrefs().unpinned, ['c'], 'cookie 优先回读');
+
+    globalThis.document = { get cookie() { return ''; }, set cookie(_value) {} };
+    assert.deepEqual(readLayoutPrefs().unpinned, ['c'], 'cookie 为空时回读 localStorage');
+
+    store.setUnpinned([]);
+    globalThis.document = { get cookie() { return ''; }, set cookie(_value) {} };
+    assert.deepEqual(readLayoutPrefs().unpinned, [], '空数组表示全部固定，不能回退成 null');
+  } finally {
+    if (storage) Object.defineProperty(window, 'localStorage', storage);
+    else delete window.localStorage;
+    globalThis.document = previousDocument;
+  }
+});
+
+test('固定存档与顺序一起写入：后续排序不会丢掉 unpinned，后续固定变化保留 order', () => {
+  const storage = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  let stored = null;
+  try {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: { setItem(_key, value) { stored = JSON.parse(value); } },
+    });
+    const store = createPanelLayoutStore({ enabled: true, order: ['a'], hidden: [], unpinned: ['b'] });
+    store.setOrder(['b', 'a']);
+    assert.deepEqual(stored.order, ['b', 'a']);
+    assert.deepEqual(stored.unpinned, ['b'], '排序提交必须保留固定存档');
+    store.setUnpinned(['a']);
+    assert.deepEqual(stored.order, ['b', 'a'], '固定存档提交必须保留顺序');
+    assert.deepEqual(stored.unpinned, ['a']);
+  } finally {
+    if (storage) Object.defineProperty(window, 'localStorage', storage);
+    else delete window.localStorage;
+  }
 });

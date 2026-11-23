@@ -78,6 +78,8 @@ window.__ModuleLoader__.load({
     var OFFICIAL_MORE_ID = 'entry-customization';
     /** 官方固定菜单「更多」首次随该版本交付；用作无法读取 boot 信息时的兜底。 */
     var OFFICIAL_MORE_RELEASE = '0.2.2-rc.2';
+    /** 官方始终固定、不允许取消固定的面板 id（与 ui-sidebar 的 FIXED_PANEL_ID 一致）。 */
+    var FIXED_PANEL_ID = 'plugins';
     /** 提供官方「更多」固定/取消固定的 Client 包；boot 图里出现它即说明是新版。 */
     var OFFICIAL_MORE_PACKAGE = '@deepseek-ai/dsh-client-ui-entry-customization';
     /**
@@ -99,15 +101,24 @@ window.__ModuleLoader__.load({
     /* ────────────── v0.4：面板排序与折叠（可选部件）────────────── */
 
     /**
-     * 排序/隐藏状态的存储位置。
+     * 排序/隐藏/固定状态的存储位置。
      *
-     * DSH 桌面每次启动给 Web GUI 随机分配本地端口，而 localStorage 按 origin
-     * （含端口）隔离，重启会丢。cookie 只按 host 隔离，正好跨端口保留；再镜像
-     * 一份 localStorage 作为同源会话内的快速路径与兜底。不读写 Host 配置。
+     * 桌面版窗口加载的是 `dsh-app://app` 自定义源：cookie 在该源上不落盘，
+     * localStorage 反而按这个稳定源持久化。浏览器里则相反，DSH 桌面每次启动
+     * 给 Web GUI 随机分配本地端口，localStorage 按 origin（含端口）隔离会丢，
+     * cookie 只按 host 隔离能跨端口保留。所以两边都写、读时谁有值用谁。
+     * 不读写 Host 配置。
      */
     var LAYOUT_COOKIE = 'dsh_fold_minimal_panel_layout_v1';
     var LAYOUT_STORAGE_KEY = 'dsh.fold-minimal.panel-layout.v1';
     var LAYOUT_COOKIE_MAX_AGE = 31536000;
+    /**
+     * 页面级固定回填状态：记录本页面已经回填过的官方 `entryPins` source。
+     * 插件 HMR / 停用后再启用时 window 不变、官方 source 也不变，此时不能拿旧存档
+     * 再次回填（会撤销用户停用期间的操作）；整页重载或官方 sidebar 重建时 source
+     * 变化，才按存档回填。
+     */
+    var PIN_PAGE_STATE = '__dsh_fold_minimal_pins_v1__';
 
     /**
      * 拖拽启动阈值（px）：按下后移动超过这个距离就立即进入换位状态并显示
@@ -218,7 +229,14 @@ window.__ModuleLoader__.load({
     var CSS_TAG = 'dsh-fold-minimal/FoldMinimal.css';
     var CSS = [
       // 一行图标；tooltip 绝对定位在按钮下方，靠 :hover / :focus-visible 显示。
-      '.DFM_rail{box-sizing:border-box;display:flex;align-items:center;gap:2px;height:28px}',
+      // 工具栏浮在插件主面板上方，插件页可能自带非白背景；给整条工具栏铺一层
+      // 与主面板同色的圆角色块，正常页面上看不见，深色插件背景上也不会让图标
+      // 混进去。颜色用主题 token，浅色即白、深色即近黑。左右内边距用负外边距
+      // 抵消，色块向两侧各扩 6px，但第一个按钮仍停在宿主的 88px 起始位。
+      // 上下同样用 3px 内边距 + 负外边距：色块比按钮高 6px，给选中/悬停底色
+      // 留出呼吸空间，按钮本身的位置和行高不变。
+      '.DFM_rail{box-sizing:border-box;display:flex;align-items:center;gap:2px;height:34px;',
+      'margin:-3px -6px;padding:3px 6px;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-base)}',
       '.DFM_divider{flex:none;width:1px;height:16px;margin:0 6px;border-radius:1px;',
       'background:var(--dsw-alias-border-l2);opacity:.55}',
       '.DFM_button{box-sizing:border-box;position:relative;flex:none;display:inline-flex;align-items:center;',
@@ -589,7 +607,7 @@ window.__ModuleLoader__.load({
     /**
      * 把任意读到的值收成合法的排序/隐藏状态。
      * @param value - 来自 cookie / localStorage 的 JSON。
-     * @returns `{ enabled, order, hidden }`；无效值回落到默认关闭。
+     * @returns `{ enabled, order, hidden, unpinned, toolbar, back }`；无效值回落到默认关闭。
      */
     function sanitizeLayoutPrefs(value) {
       var source = value && typeof value === 'object' ? value : {};
@@ -606,6 +624,10 @@ window.__ModuleLoader__.load({
         enabled: source.enabled === true,
         order: clean(source.order),
         hidden: clean(source.hidden),
+        // 官方未固定 id。`null` 表示从未保存过（按官方默认：全部固定），
+        // `[]` 表示保存过且当前全部固定 —— 两者必须区分，否则新面板会把
+        // 旧存档里的「全部固定」误当成「没有偏好」。
+        unpinned: Array.isArray(source.unpinned) ? clean(source.unpinned) : null,
         // 原有「折叠菜单」组件默认开启；只有显式保存为 false 才关闭。
         toolbar: source.toolbar !== false,
         // 「返回会话」独立开关，默认开启；旧存档没有该字段时按开启处理。
@@ -667,19 +689,22 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** 写回 localStorage 镜像；异常时忽略。 */
+    /** 写回 localStorage；异常时忽略。 */
     function writeLayoutStorage(prefs) {
       if (typeof window === 'undefined') return;
       try {
         if (window.localStorage) window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(prefs));
       } catch (error) {
-        // 忽略：cookie 仍是跨重启的主存储。
+        // 忽略：cookie 仍是浏览器里的跨端口存储。
       }
     }
 
     /**
-     * 读取启动状态：cookie 优先（跨端口），localStorage 仅作兜底。
-     * @returns `{ enabled, order, hidden }`。
+     * 读取启动状态：cookie 优先（浏览器里跨端口），localStorage 兜底。
+     *
+     * 桌面版窗口实际加载的是 `dsh-app://app` 自定义源，cookie 在该源上不落盘，
+     * 而 localStorage 按这个稳定源持久化；因此两边都写、读时谁有值用谁。
+     * @returns `{ enabled, order, hidden, unpinned, toolbar, back }`。
      */
     function readLayoutPrefs() {
       var cookie = readLayoutCookie();
@@ -687,7 +712,7 @@ window.__ModuleLoader__.load({
       return sanitizeLayoutPrefs(readLayoutStorage());
     }
 
-    /** 持久化排序状态（cookie + localStorage 镜像）。 */
+    /** 持久化排序/固定状态（cookie + localStorage 镜像）。 */
     function writeLayoutPrefs(prefs) {
       var clean = sanitizeLayoutPrefs(prefs);
       writeLayoutCookie(clean);
@@ -698,7 +723,8 @@ window.__ModuleLoader__.load({
      * 排序/显隐状态的小型 observable store。
      *
      * 快照字段：`enabled`（设置开关）、`order`（保存的 id 顺序）、
-     * `hidden`（收起的 id）、`trayOpen`（二级区展开，不持久化）、
+     * `hidden`（收起的 id）、`unpinned`（官方未固定 id 的存档镜像，
+     * `null` 表示从未保存）、`trayOpen`（二级区展开，不持久化）、
      * `dragActive` / `dragPanelId`（拖拽中的临时状态，不持久化）。
      * @param initial - `readLayoutPrefs()` 的结果。
      * @returns store：`subscribe/getSnapshot` + 动作。
@@ -711,6 +737,7 @@ window.__ModuleLoader__.load({
         backEnabled: prefs.back,
         order: prefs.order,
         hidden: prefs.hidden,
+        unpinned: prefs.unpinned,
         trayOpen: false,
         dragActive: false,
         dragPanelId: null,
@@ -740,6 +767,7 @@ window.__ModuleLoader__.load({
             enabled: next.enabled,
             order: next.order,
             hidden: next.hidden,
+            unpinned: next.unpinned,
             toolbar: next.toolbarEnabled,
             back: next.backEnabled,
           });
@@ -787,6 +815,15 @@ window.__ModuleLoader__.load({
         setPlacement: function (order, hidden) {
           var next = sanitizeLayoutPrefs({ order: order, hidden: hidden });
           patch({ order: next.order, hidden: next.hidden }, true);
+        },
+        /**
+         * 保存官方未固定 id 的镜像，供下次启动回填给官方 `setPinned`。
+         * 传 `null` 表示清掉存档（回到官方默认全部固定）。
+         * @param unpinned - 官方 entryPins 快照，或 null。
+         */
+        setUnpinned: function (unpinned) {
+          var next = Array.isArray(unpinned) ? sanitizeLayoutPrefs({ unpinned: unpinned }).unpinned : null;
+          patch({ unpinned: next }, true);
         },
         setTrayOpen: function (open) {
           patch({ trayOpen: open === true }, false);
@@ -1238,7 +1275,7 @@ window.__ModuleLoader__.load({
       };
     }
 
-    /* ── src/08-dom.js — Host row/nav helpers and pinned-state observer ── */
+    /* ── src/08-dom.js — Host row/nav helpers, pinned-state observer and cross-restart pin persistence ── */
     /**
      * 从事件目标向上找最近的带某个属性的元素（含自身）。
      * @param node - 事件目标。
@@ -1404,6 +1441,130 @@ window.__ModuleLoader__.load({
           if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
           else clearTimeout(frame);
         }
+      };
+    }
+
+    /**
+     * 页面级固定回填状态（见 `PIN_PAGE_STATE`）。
+     * 拿不到 window 时返回 null，调用方退化为每个实例回填一次。
+     * @returns `{ source }` 或 null。
+     */
+    function pinPageState() {
+      if (typeof window === 'undefined') return null;
+      try {
+        var current = window[PIN_PAGE_STATE];
+        if (current && typeof current === 'object') return current;
+        var created = { source: null };
+        Object.defineProperty(window, PIN_PAGE_STATE, { configurable: true, value: created });
+        return created;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    /**
+     * 把官方固定状态镜像到本机存储，并在下次启动时回填。
+     *
+     * 官方 ui-sidebar 的 pin 列表是纯内存的（`panel-pins.ts` 注释为
+     * "In-memory pin choices"），退出 DSH 就回到「全部固定」。插件既然已经把
+     * 顺序存下来了，也顺手把官方未固定 id 存一份；启动时在官方 sidebar 注册
+     * 后逐项调用 `setPinned(id, false)`，折叠工具栏与官方「更多」就会恢复上次
+     * 的分组，不需要用户重新取消固定。
+     *
+     * 时序必须是「先回填、再订阅保存」：否则启动时读到官方默认的全部固定，
+     * 会立刻把存档覆盖成空列表。同一页面里同一个官方 source 只回填一次：
+     * 插件 HMR / 停用后重新启用时官方状态才是最新的，旧存档不能反过来撤销用户
+     * 停用期间的操作；官方 sidebar 重建（source 变化）或整页重载才再次回填。
+     * @param ctx - 客户端根上下文。
+     * @param layout - 布局 store（提供 `unpinned` 存档与 `setUnpinned`）。
+     * @returns 清理函数。
+     */
+    function installOfficialPinsPersistence(ctx, layout) {
+      var disposed = false;
+      var official = null;
+      var source = null;
+      var offSource = null;
+      var offSlot = null;
+
+      var save = function () {
+        try {
+          if (!source || typeof source.getSnapshot !== 'function') return;
+          var current = source.getSnapshot();
+          if (!Array.isArray(current)) return;
+          layout.setUnpinned(current);
+        } catch (error) {
+          // 存储或 layout 订阅者异常不能冒泡回官方 setPinned，
+          // 否则跨边界拖拽会把“pin 已成功”误判成官方拒绝并放弃排序。
+        }
+      };
+
+      var restore = function () {
+        var saved = layout.getSnapshot().unpinned;
+        if (!Array.isArray(saved) || !official) return;
+        var current = source && typeof source.getSnapshot === 'function' ? source.getSnapshot() : [];
+        var active = Object.create(null);
+        if (Array.isArray(current)) {
+          for (var index = 0; index < current.length; index += 1) active[current[index]] = true;
+        }
+        for (var scan = 0; scan < saved.length; scan += 1) {
+          var id = saved[scan];
+          // plugins 始终固定；已经未固定的项不必重复提交。
+          if (typeof id !== 'string' || id.length === 0 || id === FIXED_PANEL_ID || active[id]) continue;
+          try {
+            official.setPinned(id, false);
+          } catch (error) {
+            // 官方拒绝时跳过；当前已知的拒绝只有 plugins，已在上面提前跳过。
+          }
+        }
+      };
+
+      var connect = function () {
+        if (disposed) return;
+        var candidate = resolveOfficialSidebar(ctx);
+        if (!candidate || !candidate.hooks || !candidate.hooks.entryPins) return;
+        var next = candidate.hooks.entryPins;
+        if (next === source) return;
+        if (offSource) {
+          offSource();
+          offSource = null;
+        }
+        official = candidate;
+        source = next;
+        var page = pinPageState();
+        if (!page || page.source !== source) {
+          restore();
+          if (page) page.source = source;
+        }
+        if (typeof source.subscribe === 'function') {
+          try {
+            offSource = source.subscribe(save);
+          } catch (error) {
+            offSource = null;
+          }
+        }
+        // 回填之后的实际状态（或同一 source 再次启用时的官方状态）才是要保存的状态。
+        save();
+      };
+
+      connect();
+      // 官方 sidebar 可能晚于本插件注册，也可能被整体重建；槽位变化时重新对账。
+      if (ctx && ctx.slots && typeof ctx.slots.subscribe === 'function') {
+        try {
+          offSlot = ctx.slots.subscribe(SLOT, connect);
+        } catch (error) {
+          offSlot = null;
+        }
+        // subscribe 与 connect 之间若有注册到达，补一次。
+        connect();
+      }
+      return function () {
+        disposed = true;
+        if (offSource) offSource();
+        offSource = null;
+        if (offSlot) offSlot();
+        offSlot = null;
+        official = null;
+        source = null;
       };
     }
 
@@ -4154,6 +4315,11 @@ window.__ModuleLoader__.load({
         ctx.effect(function () {
           return installPinnedObserver(pins, panels.source, ctx);
         }, 'fold-minimal: pinned observer');
+        // 官方 pin 只在内存里，退出 DSH 会重置；插件把未固定 id 存到本机，
+        // 启动时回填，避免用户每次都要重新取消固定、重新调整顺序。
+        ctx.effect(function () {
+          return installOfficialPinsPersistence(ctx, layout);
+        }, 'fold-minimal: pinned persistence');
       }
 
       var syncAll = function () {
@@ -4400,6 +4566,8 @@ window.__ModuleLoader__.load({
         DRAG_COLLAPSE_OVERSHOOT: DRAG_COLLAPSE_OVERSHOOT,
         DRAG_START_DISTANCE: DRAG_START_DISTANCE,
         LAYOUT_COOKIE: LAYOUT_COOKIE,
+        PIN_PAGE_STATE: PIN_PAGE_STATE,
+        CSS: CSS,
         dictionaries: { zh: zh, en: en },
         labelOf: labelOf,
         buildPanels: buildPanels,
@@ -4434,6 +4602,7 @@ window.__ModuleLoader__.load({
         hostPanelRowItem: hostPanelRowItem,
         pinnedIdsFromLabels: pinnedIdsFromLabels,
         installPinnedObserver: installPinnedObserver,
+        installOfficialPinsPersistence: installOfficialPinsPersistence,
         installDragCollapse: installDragCollapse,
         installPanelDrag: installPanelDrag,
         installRailDrag: installRailDrag,
